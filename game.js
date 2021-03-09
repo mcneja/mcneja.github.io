@@ -59,7 +59,15 @@ function main(textureImages, wasm) {
 
 	// Instantiate and run the WebAssembly module.
 
-	runWasm(gl, glResources, wasm);
+	runTest(gl, glResources);
+//	runWasm(gl, glResources, wasm);
+}
+
+function runTest(gl, glResources) {
+	drawScreen(gl, glResources, () => {
+		drawTile(gl, glResources, 0, 0, 256, 256, 0xffffffff, 0, 0, 0);
+		drawTile(gl, glResources, 256, 0, 256, 256, 0xffffffff, 1, 0, 0);
+	});
 }
 
 // Convert Javascript's key names into numeric codes for use in the Rust program
