@@ -3,22 +3,28 @@
 body {
   color: black;
   font-family: arial;
-  flex-direction: column;
   background-color: #f0f0f0;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
 }
-p {
-  max-width: 50em;
+.column {
+  max-width: 640px;
+  align-self: center;
+  display: flex;
+  flex-direction: column;
 }
 img {
+  max-width: 100%;
   box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19);
+}
+.center {
+  align-self: center;
 }
 p.poem {
   background-color: white;
   padding: 1em;
   box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19);
+  align-self: center;
 }
 </style>
 <head profile="http://www.w3.org/2005/10/profile">
@@ -27,9 +33,10 @@ p.poem {
 <title>ThiefRL</title>
 </head>
 <body>
-<h2>ThiefRL</h2>
-<p>The Thief-like Rogue-like</p>
-<p><img src="big-tiles.gif"/></p>
+<div class="column">
+<h2 class="center">ThiefRL</h2>
+<p class="center">The Thief-like Rogue-like</p>
+<p class="center"><img src="big-tiles.gif" alt="Screenshot"/></p>
 <p class="poem">Through the streets and courtyards creeping<br>
 While the populace is sleeping<br>
 Guards patrol to keep you out<br>
@@ -38,7 +45,7 @@ Douse the torch and pick the lock<br>
 Pilfer every building's stock<br>
 When the dawn arrives you'll be<br>
 Safely sailing o'er the sea.</p>
-<p>Windows executable (112 KB): <a href="ThiefRL.zip">ThiefRL.zip</a></p>
+<p class="center">Windows executable (112 KB): <a href="ThiefRL.zip">ThiefRL.zip</a></p>
 <p>I made this some time in the 2008 time frame, judging by the dates on the blog posts. It's got a lot more
 features in it than the later version I did for a 7DRL: lock-picking, notes and signs to read, lights and light
 switches, and a neutral sea captain of the ship you're berthed on. He's there to give you a safe place to
@@ -46,6 +53,7 @@ practice the stealth mechanics, and a way to end the game once you've collected 
 <p>The map is fixed, although it is randomly mirrored and the locks are all randomized. There are some goofy
 little things in it; I was just trying a lot of things out. You might see a ghost wandering around out of
 the corner of your eye; it doesn't do anything.</p>
-<p><a href="../index.html">Back</a></p>
+<p class="center"><a href="../index.html">Back</a></p>
+</div>
 </body>
 </html>
