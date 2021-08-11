@@ -2,12 +2,10 @@
 
 window.onload = main;
 
-// Functions
-
 function main() {
 
     const canvas = document.querySelector("#canvas");
-    const gl = canvas.getContext("webgl", { alpha: false, antialias: false, depth: false });
+    const gl = canvas.getContext("webgl", { alpha: false, depth: false });
 
     if (gl == null) {
         alert("Unable to initialize WebGL. Your browser or machine may not support it.");
@@ -22,7 +20,7 @@ function main() {
         const t = now / 1000;
         state.tLast = t;
         state.uScroll = t/2 - Math.floor(t/2);
-    
+
         drawScreen(gl, glResources, state);
 
         requestAnimationFrame(now => updateAndRender(now, gl, glResources, state));
@@ -30,6 +28,8 @@ function main() {
 }
 
 function initGlResources(gl, gridSizeX, gridSizeY, speedField, distanceField) {
+    gl.getExtension('OES_standard_derivatives');
+
     const glResources = {
         renderField: createFieldRenderer(gl, gridSizeX, gridSizeY, speedField, distanceField),
         renderDiscs: createDiscRenderer(gl),
@@ -44,16 +44,14 @@ function initGlResources(gl, gridSizeX, gridSizeY, speedField, distanceField) {
 
 function initState() {
 
-    const gridSizeX = 32;
-    const gridSizeY = 32;
+    const gridSizeX = 33;
+    const gridSizeY = 33;
 
     const speedField = createSpeedField(gridSizeX, gridSizeY);
-
-    const distanceField = Array(gridSizeX).fill().map(() => Array(gridSizeY).fill(Infinity));
-    testFastMarchFill(distanceField, speedField);
+    const distanceField = createDistanceField(speedField);
 
     const color = { r: 0, g: 0.25, b: 0.85 };
-    const discs = Array.from({length: 32}, (_, index) => { return { radius: 0.02, position: { x: Math.random(), y: Math.random() }, color: color } });
+    const discs = Array.from({length: 32}, (_, index) => { return { radius: 0.025, position: { x: Math.random(), y: Math.random() }, color: color } });
 
     return {
         gridSizeX: gridSizeX,
@@ -184,14 +182,16 @@ function createDiscRenderer(gl) {
     `;
 
     const fsSource = `
+        #extension GL_OES_standard_derivatives : enable
+
         varying highp vec2 fPosition;
 
         uniform highp vec3 uColor;
 
         void main() {
             highp float r = length(fPosition);
-            highp float opacity = step(-1.0, -r);
-
+            highp float aaf = fwidth(r);
+            highp float opacity = 1.0 - smoothstep(1.0 - aaf, 1.0, r);
             gl_FragColor = vec4(uColor, opacity);
         }
     `;
@@ -363,7 +363,7 @@ function updateDisc(gridSizeX, gridSizeY, distanceField, dt, disc) {
 
         const gradientLen = Math.sqrt(gradient.x**2 + gradient.y**2);
 
-        const speed = 4 / gridSizeX;
+        const speed = 0.125;
         const dist = speed * dt / Math.max(1e-8, gradientLen);
     
         disc.position.x -= gradient.x * dist;
@@ -385,11 +385,10 @@ function drawScreen(gl, glResources, state) {
 }
 
 function resizeCanvasToDisplaySize(canvas) {
-    const displayWidth  = canvas.clientWidth;
-    const displayHeight = canvas.clientHeight;
-    if (canvas.width  !== displayWidth || canvas.height !== displayHeight) {
-        canvas.width  = displayWidth;
-        canvas.height = displayHeight;
+    const rect = canvas.parentNode.getBoundingClientRect();
+    if (canvas.width !== rect.width || canvas.height !== rect.height) {
+        canvas.width = rect.width;
+        canvas.height = rect.height;
     }
 }
 
@@ -488,14 +487,19 @@ function priorityQueuePush(q, x) {
     }
 }
 
-function testFastMarchFill(field, speed) {
+function createDistanceField(speedField) {
+    const distanceField = Array(speedField.length).fill().map(() => Array(speedField[0].length).fill(Infinity));
+
     let toVisit = [{priority: 0, x: 2, y: 7}];
-    fastMarchFill(field, toVisit, (x, y) => estimatedDistanceWithSpeed(field, speed, x, y));
+    fastMarchFill(distanceField, toVisit, (x, y) => estimatedDistanceWithSpeed(distanceField, speedField, x, y));
+
+    return distanceField;
 }
 
 function fastMarchFill(field, toVisit, estimatedDistance) {
     while (toVisit.length > 0) {
         const {priority, x, y} = priorityQueuePop(toVisit);
+
         if (field[x][y] <= priority) {
             continue;
         }
