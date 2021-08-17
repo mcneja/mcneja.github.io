@@ -33,46 +33,65 @@ function main() {
         return;
     }
 
-    canvas.requestPointerLock = canvas.requestPointerLock || canvas.mozRequestPointerLock;
-    canvas.exitPointerLock = canvas.exitPointerLock || canvas.mozExitPointerLock;
-
-    canvas.onclick = () => canvas.requestPointerLock();
-
+    const glResources = initGlResources(gl);
     const state = initState();
 
-    const glResources = initGlResources(gl);
+    canvas.requestPointerLock = canvas.requestPointerLock || canvas.mozRequestPointerLock;
+    document.exitPointerLock = document.exitPointerLock || document.mozExitPointerLock;
 
-    function lockChangeAlert() {
-        if (document.pointerLockElement === canvas || document.mozPointerLockElement === canvas) {
-            document.addEventListener("mousemove", onUpdatePosition, false);
+    canvas.onclick = () => {
+        if (state.paused) {
+            canvas.requestPointerLock();
         } else {
-            document.removeEventListener("mousemove", onUpdatePosition, false);
-            state.player.velocity.x = 0;
-            state.player.velocity.y = 0;
+            resetState(state);
+            document.exitPointerLock();
+        }
+    };
+
+    function requestUpdateAndRender() {
+        requestAnimationFrame(now => updateAndRender(now, gl, glResources, state));
+    }
+
+    function onLockChanged() {
+        const mouseCaptured =
+            document.pointerLockElement === canvas ||
+            document.mozPointerLockElement === canvas;
+        if (mouseCaptured) {
+            document.addEventListener("mousemove", onMouseMoved, false);
+            if (state.paused) {
+                state.paused = false;
+                state.tLast = undefined;
+                state.player.velocity.x = 0;
+                state.player.velocity.y = 0;
+                requestUpdateAndRender();
+            }
+        } else {
+            document.removeEventListener("mousemove", onMouseMoved, false);
+            state.paused = true;
         }
     }
 
-    function onUpdatePosition(e) {
+    function onMouseMoved(e) {
         updatePosition(state, e);
     }
 
-    document.addEventListener('pointerlockchange', lockChangeAlert, false);
-    document.addEventListener('mozpointerlockchange', lockChangeAlert, false);
+    function onWindowResized() {
+        requestUpdateAndRender();
+    }
 
-    requestAnimationFrame(now => {
-        const t = now / 1000;
-        state.tLast = t;
-        state.uScroll = t/2 - Math.floor(t/2);
+    document.addEventListener('pointerlockchange', onLockChanged, false);
+    document.addEventListener('mozpointerlockchange', onLockChanged, false);
 
-        drawScreen(gl, glResources, state);
+    window.addEventListener('resize', onWindowResized);
 
-        requestAnimationFrame(now => updateAndRender(now, gl, glResources, state));
-    });
+    requestUpdateAndRender();
 }
 
 function updatePosition(state, e) {
-    state.player.velocity.x += e.movementX / 250;
-    state.player.velocity.y -= e.movementY / 250;
+    if (!state.player.dead) {
+        state.player.velocity.x += e.movementX / 250;
+        state.player.velocity.y -= e.movementY / 250;
+    }
 }
 
 function initGlResources(gl) {
@@ -91,7 +110,12 @@ function initGlResources(gl) {
 }
 
 function initState() {
+    const state = {};
+    resetState(state);
+    return state;
+}
 
+function resetState(state) {
     const gridSizeX = 64;
     const gridSizeY = 64;
 
@@ -100,32 +124,68 @@ function initState() {
         position: { x: 0.5, y: 0.5 },
         velocity: { x: 0, y: 0 },
         color: { r: 0.8, g: 0.6, b: 0 },
+        dead: false,
     };
 
-    const obstacles = createObstacles();
+    const obstacles = createObstacles(player.position);
+    const collectibles = createCollectibles(obstacles);
     const costRateField = createCostRateField(gridSizeX, gridSizeY, obstacles);
     const distanceFromWallsField = createDistanceFromWallsField(costRateField);
     const costRateFieldSmooth = createSmoothedCostRateField(distanceFromWallsField);
     const distanceField = createDistanceField(costRateFieldSmooth, player.position);
+    const discs = createEnemies(obstacles, player.position);
 
-    const color = { r: 0, g: 0.25, b: 0.85 };
-    const discs = Array.from({length: 32}, (_, index) => { return { radius: 0.0125, position: { x: Math.random(), y: Math.random() }, color: color } });
-
-    return {
-        costRateField: costRateFieldSmooth,
-        distanceField: distanceField,
-        tLast: 0,
-        uScroll: 0,
-        discs: discs,
-        obstacles: obstacles,
-        player: player,
-    };
+    state.costRateField = costRateFieldSmooth;
+    state.distanceField = distanceField;
+    state.paused = true;
+    state.gameOver = false;
+    state.tLast = undefined;
+    state.discs = discs;
+    state.obstacles = obstacles;
+    state.collectibles = collectibles;
+    state.player = player;
 }
 
-function createObstacles() {
+function createEnemies(obstacles, playerPosition) {
+    const enemies = [];
+    const enemyRadius = 0.0125;
+    const separationFromObstacle = 0.02 + enemyRadius;
+    const separationFromAlly = 0.05;
+    const enemyColor = { r: 0, g: 0.25, b: 0.85 };
+    const playerDisc = { radius: 0.25, position: playerPosition };
+    const angle = Math.random() * Math.PI * 2;
+    const dirX = Math.cos(angle);
+    const dirY = Math.sin(angle);
+    for (let i = 0; i < 1000 && enemies.length < 128; ++i) {
+        const enemy = {
+            radius: enemyRadius,
+            position: {
+                x: separationFromObstacle + (1 - 2*separationFromObstacle) * Math.random(),
+                y: separationFromObstacle + (1 - 2*separationFromObstacle) * Math.random(),
+            },
+            color: enemyColor,
+            dead: false,
+        };
+        const dx = enemy.position.x - 0.5;
+        const dy = enemy.position.y - 0.5;
+        const d = dirX * dx + dirY * dy;
+        if (d < 0) {
+            continue;
+        }
+        if (!discOverlapsDiscs(enemy, obstacles, separationFromObstacle - enemyRadius) &&
+            !discOverlapsDiscs(enemy, enemies, separationFromAlly) &&
+            !discsOverlap(enemy, playerDisc)) {
+            enemies.push(enemy);
+        }
+    }
+    return enemies;
+}
+
+function createObstacles(playerPosition) {
     const obstacles = [];
     const radius = 0.05;
     const separation = -0.02;
+    const playerDisc = { radius: 0.05, position: playerPosition };
     const color = { r: 0.25, g: 0.25, b: 0.25 };
     for (let i = 0; i < 1000 && obstacles.length < 16; ++i) {
         const obstacle = {
@@ -136,11 +196,35 @@ function createObstacles() {
             },
             color: color,
         };
-        if (!discOverlapsDiscs(obstacle, obstacles, separation)) {
+        if (!discOverlapsDiscs(obstacle, obstacles, separation) &&
+            !discsOverlap(obstacle, playerDisc)) {
             obstacles.push(obstacle);
         }
     }
     return obstacles;
+}
+
+function createCollectibles(obstacles) {
+    const collectibles = [];
+    const radius = 0.01;
+    const separationFromObstacle = 0.02;
+    const separationFromCollectible = 0.05;
+    const color = { r: 0, g: 0.9, b: 0 };
+    for (let i = 0; i < 1000 && collectibles.length < 128; ++i) {
+        const collectible = {
+            radius: radius,
+            position: {
+                x: radius + separationFromObstacle + (1 - 2*(radius + separationFromObstacle)) * Math.random(),
+                y: radius + separationFromObstacle + (1 - 2*(radius + separationFromObstacle)) * Math.random(),
+            },
+            color: color,
+        };
+        if (!discOverlapsDiscs(collectible, obstacles, separationFromObstacle) &&
+            !discOverlapsDiscs(collectible, collectibles, separationFromCollectible)) {
+            collectibles.push(collectible);
+        }
+    }
+    return collectibles;
 }
 
 function discOverlapsDiscs(disc, discs, minSeparation) {
@@ -152,6 +236,12 @@ function discOverlapsDiscs(disc, discs, minSeparation) {
         }
     }
     return false;
+}
+
+function discsOverlap(disc0, disc1) {
+    const dx = disc1.position.x - disc0.position.x;
+    const dy = disc1.position.y - disc0.position.y;
+    return dx**2 + dy**2 < (disc1.radius + disc0.radius)**2;
 }
 
 function createFieldRenderer(gl) {
@@ -405,76 +495,97 @@ function createVertexInfo(costRateField, distanceField) {
 
 function updateAndRender(now, gl, glResources, state) {
     const t = now / 1000;
-    const dt = Math.min(1/30, t - state.tLast);
+    const dt = (state.paused || state.tLast === undefined) ? 0 : Math.min(1/30, t - state.tLast);
     state.tLast = t;
-    state.uScroll = t/2 - Math.floor(t/2);
+
+    if (dt > 0) {
+        updateState(state, dt);
+    }
+
+    drawScreen(gl, glResources, state);
+
+    if (!state.paused) {
+        requestAnimationFrame(now => updateAndRender(now, gl, glResources, state));
+    }
+}
+
+function updateState(state, dt) {
+
+    if (state.player.dead) {
+        const r = Math.exp(-dt);
+        state.player.velocity.x *= r;
+        state.player.velocity.y *= r;
+    }
 
     state.player.position.x += state.player.velocity.x * dt;
     state.player.position.y += state.player.velocity.y * dt;
 
     for (const obstacle of state.obstacles) {
-        fixupFirstPosition(state.player, obstacle);
+        fixupPositionAndVelocityAgainstDisc(state.player, obstacle);
     }
 
-    if (state.player.position.x < state.player.radius) {
-        state.player.position.x = state.player.radius;
-        state.player.velocity.x = 0;
-    } else if (state.player.position.x > 1 - state.player.radius) {
-        state.player.position.x = 1 - state.player.radius;
-        state.player.velocity.x = 0;
-    }
-    if (state.player.position.y < state.player.radius) {
-        state.player.position.y = state.player.radius;
-        state.player.velocity.y = 0;
-    } else if (state.player.position.y > 1 - state.player.radius) {
-        state.player.position.y = 1 - state.player.radius;
-        state.player.velocity.y = 0;
+    fixupPositionAndVelocityAgainstBoundary(state.player);
+
+    state.collectibles = state.collectibles.filter(collectible => !discsOverlap(state.player, collectible));
+    if (state.collectibles.length <= 0) {
+        state.gameOver = true;
     }
 
     updateDistanceField(state.costRateField, state.distanceField, state.player.position);
 
+    const discSpeed = 0.2 - 0.15 * Math.min(state.collectibles.length, 80) / 80;
+
+    let enemyDied = false;
     for (const disc of state.discs) {
-        updateDisc(state.distanceField, dt, state.player, disc);
+        updateEnemy(state.distanceField, dt, discSpeed, state.player, disc);
+        if (disc.dead) {
+            enemyDied = true;
+            if (!state.gameOver) {
+                state.player.dead = true;
+                state.player.color.r *= 0.5;
+                state.player.color.g *= 0.5;
+                state.player.color.b *= 0.5;
+                state.gameOver = true;
+            }
+        }
+    }
+
+    if (enemyDied) {
+        state.discs = state.discs.filter(disc => !disc.dead);
     }
 
     for (let k = 0; k < 3; ++k) {
         for (let i = 0; i < state.discs.length; ++i) {
             for (let j = i + 1; j < state.discs.length; ++j) {
-                fixupPositions(state.discs[i], state.discs[j]);
+                fixupDiscPairPositions(state.discs[i], state.discs[j]);
             }
 
             for (const obstacle of state.obstacles) {
-                fixupFirstPosition(state.discs[i], obstacle);
+                fixupPositionAgainstDisc(state.discs[i], obstacle);
             }
+
+            fixupPositionAgainstBoundary(state.discs[i]);
         }
     }
-
-    drawScreen(gl, glResources, state);
-
-    requestAnimationFrame(now => updateAndRender(now, gl, glResources, state));
 }
 
-function updateDisc(distanceField, dt, player, disc) {
-    const dx = disc.position.x - player.position.x;
-    const dy = disc.position.y - player.position.y;
-    const dist = Math.sqrt(dx**2 + dy**2);
-    if (dist < player.radius + disc.radius) {
-        disc.position.x = Math.random();
-        disc.position.y = Math.random();
-    } else {
-        const gradient = estimateGradient(distanceField, disc.position.x, disc.position.y);
-
-        const gradientLen = Math.sqrt(gradient.x**2 + gradient.y**2);
-
-        const speed = 0.0625;//0.125;
-        const dist = speed * dt / Math.max(1e-8, gradientLen);
-    
-        disc.position.x -= gradient.x * dist;
-        disc.position.y -= gradient.y * dist;
+function updateEnemy(distanceField, dt, discSpeed, player, disc) {
+    if (discsOverlap(disc, player)) {
+        disc.dead = true;
+        return;
     }
+
+    const gradient = estimateGradient(distanceField, disc.position.x, disc.position.y);
+
+    const gradientLen = Math.sqrt(gradient.x**2 + gradient.y**2);
+
+    const dist = discSpeed * dt / Math.max(1e-8, gradientLen);
+
+    disc.position.x -= gradient.x * dist;
+    disc.position.y -= gradient.y * dist;
 }
 
-function fixupPositions(disc0, disc1) {
+function fixupDiscPairPositions(disc0, disc1) {
     let dx = disc1.position.x - disc0.position.x;
     let dy = disc1.position.y - disc0.position.y;
     const d = Math.sqrt(dx**2 + dy**2);
@@ -490,17 +601,63 @@ function fixupPositions(disc0, disc1) {
     }
 }
 
-function fixupFirstPosition(disc0, disc1) {
-    let dx = disc1.position.x - disc0.position.x;
-    let dy = disc1.position.y - disc0.position.y;
+function fixupPositionAgainstBoundary(disc) {
+    if (disc.position.x < disc.radius) {
+        disc.position.x = disc.radius;
+    } else if (disc.position.x > 1 - disc.radius) {
+        disc.position.x = 1 - disc.radius;
+    }
+    if (disc.position.y < disc.radius) {
+        disc.position.y = disc.radius;
+    } else if (disc.position.y > 1 - disc.radius) {
+        disc.position.y = 1 - disc.radius;
+    }
+}
+
+function fixupPositionAndVelocityAgainstBoundary(disc) {
+    if (disc.position.x < disc.radius) {
+        disc.position.x = disc.radius;
+        disc.velocity.x = 0;
+    } else if (disc.position.x > 1 - disc.radius) {
+        disc.position.x = 1 - disc.radius;
+        disc.velocity.x = 0;
+    }
+    if (disc.position.y < disc.radius) {
+        disc.position.y = disc.radius;
+        disc.velocity.y = 0;
+    } else if (disc.position.y > 1 - disc.radius) {
+        disc.position.y = 1 - disc.radius;
+        disc.velocity.y = 0;
+    }
+}
+
+function fixupPositionAgainstDisc(disc, obstacle) {
+    const dx = disc.position.x - obstacle.position.x;
+    const dy = disc.position.y - obstacle.position.y;
     const d = Math.sqrt(dx**2 + dy**2);
-    const dist = d - (disc0.radius + disc1.radius);
+    const dist = d - (disc.radius + obstacle.radius);
 
     if (dist < 0) {
-        dx *= dist / d;
-        dy *= dist / d;
-        disc0.position.x += dx;
-        disc0.position.y += dy;
+        disc.position.x -= dx * dist / d;
+        disc.position.y -= dy * dist / d;
+    }
+}
+
+function fixupPositionAndVelocityAgainstDisc(disc, obstacle) {
+    const dx = disc.position.x - obstacle.position.x;
+    const dy = disc.position.y - obstacle.position.y;
+    const d = Math.sqrt(dx**2 + dy**2);
+    const dist = d - (disc.radius + obstacle.radius);
+
+    if (dist < 0) {
+        disc.position.x -= dx * dist / d;
+        disc.position.y -= dy * dist / d;
+
+        const vn = disc.velocity.x * dx + disc.velocity.y * dy;
+        if (vn < 0) {
+            disc.velocity.x -= vn * dx / d**2;
+            disc.velocity.y -= vn * dy / d**2;
+        }
     }
 }
 
@@ -513,8 +670,9 @@ function drawScreen(gl, glResources, state) {
     gl.viewport(0, 0, screenX, screenY);
     gl.clear(gl.COLOR_BUFFER_BIT);
 
-    glResources.renderField(state.costRateField, state.distanceField, 0); //state.uScroll);
+    glResources.renderField(state.costRateField, state.distanceField, 0);
     glResources.renderDiscs(state.obstacles);
+    glResources.renderDiscs(state.collectibles);
     glResources.renderDiscs(state.discs);
     glResources.renderDiscs([state.player]);
 }
