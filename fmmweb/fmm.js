@@ -127,13 +127,15 @@ function resetState(state) {
         dead: false,
     };
 
+    const enemyRadius = 0.0125;
+
     const obstacles = createObstacles(player.position);
     const collectibles = createCollectibles(obstacles);
-    const costRateField = createCostRateField(gridSizeX, gridSizeY, obstacles);
+    const costRateField = createCostRateField(gridSizeX, gridSizeY, enemyRadius, obstacles);
     const distanceFromWallsField = createDistanceFromWallsField(costRateField);
     const costRateFieldSmooth = createSmoothedCostRateField(distanceFromWallsField);
     const distanceField = createDistanceField(costRateFieldSmooth, player.position);
-    const discs = createEnemies(obstacles, player.position);
+    const discs = createEnemies(obstacles, enemyRadius, player.position);
 
     state.costRateField = costRateFieldSmooth;
     state.distanceField = distanceField;
@@ -146,9 +148,8 @@ function resetState(state) {
     state.player = player;
 }
 
-function createEnemies(obstacles, playerPosition) {
+function createEnemies(obstacles, enemyRadius, playerPosition) {
     const enemies = [];
-    const enemyRadius = 0.0125;
     const separationFromObstacle = 0.02 + enemyRadius;
     const separationFromAlly = 0.05;
     const enemyColor = { r: 0, g: 0.25, b: 0.85 };
@@ -162,6 +163,10 @@ function createEnemies(obstacles, playerPosition) {
             position: {
                 x: separationFromObstacle + (1 - 2*separationFromObstacle) * Math.random(),
                 y: separationFromObstacle + (1 - 2*separationFromObstacle) * Math.random(),
+            },
+            velocity: {
+                x: 0,
+                y: 0,
             },
             color: enemyColor,
             dead: false,
@@ -579,10 +584,30 @@ function updateEnemy(distanceField, dt, discSpeed, player, disc) {
 
     const gradientLen = Math.sqrt(gradient.x**2 + gradient.y**2);
 
-    const dist = discSpeed * dt / Math.max(1e-8, gradientLen);
+    const scale = discSpeed / Math.max(1e-8, gradientLen);
 
-    disc.position.x -= gradient.x * dist;
-    disc.position.y -= gradient.y * dist;
+    const vxPrev = disc.velocity.x;
+    const vyPrev = disc.velocity.y;
+
+    const vxTarget = gradient.x * -scale;
+    const vyTarget = gradient.y * -scale;
+
+    let dvx = vxTarget - disc.velocity.x;
+    let dvy = vyTarget - disc.velocity.y;
+    const dv = Math.sqrt(dvx**2 + dvy**2);
+
+    const maxDv = 25 * (discSpeed**2) * dt;
+
+    if (dv > maxDv) {
+        dvx *= maxDv / dv;
+        dvy *= maxDv / dv;
+    }
+
+    disc.velocity.x += dvx;
+    disc.velocity.y += dvy;
+
+    disc.position.x += (vxPrev + disc.velocity.x) * dt / 2;
+    disc.position.y += (vyPrev + disc.velocity.y) * dt / 2;
 }
 
 function fixupDiscPairPositions(disc0, disc1) {
@@ -780,7 +805,7 @@ function priorityQueuePush(q, x) {
     }
 }
 
-function createCostRateField(sizeX, sizeY, obstacles) {
+function createCostRateField(sizeX, sizeY, enemyRadius, obstacles) {
     const costRate = new Float64Grid(sizeX, sizeY, 1);
 
     function dist(x, y) {
@@ -790,7 +815,7 @@ function createCostRateField(sizeX, sizeY, obstacles) {
         for (const obstacle of obstacles) {
             const dx = x - obstacle.position.x;
             const dy = y - obstacle.position.y;
-            const dist = Math.sqrt(dx**2 + dy**2) - obstacle.radius;
+            const dist = Math.sqrt(dx**2 + dy**2) - (obstacle.radius + enemyRadius);
             minDist = Math.min(minDist, dist);
         }
         minDist = Math.max(0, minDist);
