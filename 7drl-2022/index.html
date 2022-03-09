@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<style>
+a {
+  color: #ddd;
+}
+body {
+  margin-left: 1rem;
+  margin-right: 1rem;
+  margin-top: 1rem;
+  margin-bottom: 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-family: sans-serif;
+  background-color: #222;
+  color: #ddd;
+}
+.column {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.canvas-container {
+  width: 100%;
+  max-width: 87vmin;
+  aspect-ratio: 1/1;
+  box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.2);
+  background-color: #222;
+}
+canvas {
+  position: absolute;
+}
+</style>
+<head profile="http://www.w3.org/2005/10/profile">
+<link rel="icon" type="image/ico" href="favicon.ico"/>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2022 7DRL</title>
+</head>
+<body>
+<div class="column">
+<div class="canvas-container">
+<canvas id="canvas"></canvas>
+</div>
+<p>Unpause with mouse click. Esc to pause. Move yellow face with mouse.
+Left mouse button is melee attack; right mouse button is ranged attack. R to restart. M toggles map view.</p>
+<p class="center"><a href="../index.html">Back</a></p>
+</div>
+</body>
+<script src="gl-matrix-min.js"></script>
+<script src="game.js"></script>
+</html>
