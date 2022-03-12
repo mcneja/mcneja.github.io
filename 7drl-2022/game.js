@@ -16,22 +16,30 @@ const gsWon = 2;
 const playerRadius = 0.5;
 const playerMaxHitPoints = 4;
 const bulletRadius = 0.25;
+const bulletMinSpeed = 4;
+const bulletMaxCapacity = 3;
+const bulletRefillRate = 2;
 const monsterRadius = 0.5;
 const lootRadius = 0.5;
-const turretFireDelay = 2.0;
+const turretFireDelayStart = 4.0;
+const turretFireDelayEnd = 2.0;
 const turretFireSpeed = 10.0;
 const turretBulletLifetime = 4.0;
-const meleeAttackRadius = 0.75;
-const meleeAttackMaxDuration = 0.5;
+const invulnerabilityDuration = 6.0;
+const swarmerAttackCooldownDuration = 2.0;
 
 const numCellsX = 4;
-const numCellsY = 3;
+const numCellsY = 4;
 const corridorWidth = 3;
 
 const lavaStateInactive = 0;
 const lavaStatePrimed = 1;
 const lavaStateActive = 2;
 
+const potionTypeHealth = 0;
+const potionTypeInvulnerability = 1;
+
+const damageDisplayDuration = 1.5;
 const delayGameEndMessage = 2;
 
 class Float64Grid {
@@ -113,6 +121,8 @@ function main(fontImage) {
             e.preventDefault();
             state.showMap = !state.showMap;
             if (state.paused) {
+                state.mapZoom = state.showMap ? 0 : 1;
+                state.mapZoomVelocity = 0;
                 requestUpdateAndRender();
             }
         } else if (e.code == 'Period') {
@@ -165,20 +175,18 @@ function main(fontImage) {
             return;
         }
         if (e.button == 0) {
-            if (state.player.hitPoints > 0 && state.player.meleeAttackCooldown <= 0) {
-                state.player.meleeAttacking = true;
-            }
-        } else if (e.button == 2) {
             shootBullet(state);
+        } else if (e.button == 2) {
+            if (state.player.hitPoints > 0 && state.player.numInvulnerabilityPotions > 0) {
+                --state.player.numInvulnerabilityPotions;
+                state.player.invulnerabilityTimer = invulnerabilityDuration;
+            }
         }
     }
 
     function onMouseUp(e) {
         if (state.paused) {
             return;
-        }
-        if (e.button == 0) {
-            state.player.meleeAttacking = false;
         }
     }
 
@@ -212,80 +220,19 @@ function updatePosition(state, e) {
     vec2.scaleAndAdd(state.player.velocity, state.player.velocity, movement, scale);
 }
 
-function updateMeleeAttack(state, dt) {
-    // Check for any enemies hit by the attack
-
-    if (!state.player.meleeAttacking) {
-        state.player.meleeAttackCooldown = Math.max(0, state.player.meleeAttackCooldown - dt);
-        return;
-    }
-
-    state.player.meleeAttackCooldown += dt;
-    if (state.player.meleeAttackCooldown >= meleeAttackMaxDuration) {
-        state.player.meleeAttackCooldown = meleeAttackMaxDuration;
-        state.player.meleeAttacking = false;
-        return;
-    }
-
-    const dpos = vec2.create();
-
-    const r = meleeAttackRadius;
-
-    for (const turret of state.level.turrets) {
-        if (turret.dead) {
-            continue;
-        }
-
-        vec2.subtract(dpos, turret.position, state.player.position);
-        const dist = vec2.length(dpos);
-        if (dist < r + monsterRadius) {
-            turret.dead = true;
-            state.player.meleeAttackCooldown = 0;
-            elasticCollision(state.player, turret, 1, 1);
-        }
-    }
-
-    for (const swarmer of state.level.swarmers) {
-        if (swarmer.dead) {
-            continue;
-        }
-
-        vec2.subtract(dpos, swarmer.position, state.player.position);
-        const dist = vec2.length(dpos);
-        if (dist < r + monsterRadius) {
-            if (swarmer.stunTimer > 0) {
-                swarmer.dead = true;
-            }
-            elasticCollision(state.player, swarmer, 1, 0.5);
-        }
-    }
-}
-
-function renderMeleeAttack(state, renderer, matScreenFromWorld) {
-    if (!state.player.meleeAttacking) {
-        return;
-    }
-
-    const disc = {
-        radius: meleeAttackRadius,
-        position: vec2.create(),
-        color: { r: 0, g: 1, b: 1 },
-    };
-
-    vec2.copy(disc.position, state.player.position);
-
-    renderer.renderDiscs(matScreenFromWorld, [disc]);
-}
-
 function shootBullet(state) {
-    if (state.player.hitPoints <= 0) {
+    if (state.player.hitPoints <= 0 || state.player.numBullets < 1) {
         return;
     }
+
+    state.player.numBullets -= 1;
 
     const pos = vec2.create();
     vec2.copy(pos, state.player.position);
     const vel = vec2.create();
-    vec2.scale(vel, state.player.velocity, 2);
+    const playerSpeed = vec2.length(state.player.velocity);
+    const scale = Math.max(2 * playerSpeed, bulletMinSpeed) / Math.max(playerSpeed, 0.001);
+    vec2.scale(vel, state.player.velocity, scale);
 
     vec2.scale(state.player.velocity, state.player.velocity, 0.8);
 
@@ -310,6 +257,17 @@ function updatePlayerBullet(state, bullet, dt) {
 
     let hitSomething = false;
 
+    for (const spike of state.level.spikes) {
+        if (spike.dead) {
+            continue;
+        }
+
+        if (areDiscsTouching(bullet.position, bulletRadius, spike.position, monsterRadius)) {
+            spike.dead = true;
+            hitSomething = true;
+        }
+    }
+
     for (const turret of state.level.turrets) {
         if (turret.dead) {
             continue;
@@ -328,9 +286,7 @@ function updatePlayerBullet(state, bullet, dt) {
         }
 
         if (areDiscsTouching(bullet.position, bulletRadius, swarmer.position, swarmer.radius)) {
-            if (swarmer.stunTimer > 0) {
-                swarmer.dead = true;
-            }
+            swarmer.dead = true;
             vec2.scaleAndAdd(swarmer.velocity, swarmer.velocity, bullet.velocity, 0.2);
             hitSomething = true;
         }
@@ -374,14 +330,16 @@ function updateTurretBullet(state, bullet, dt) {
         return false;
     }
 
-    const playerRadiusCur = state.player.meleeAttacking ? meleeAttackRadius : playerRadius;
+    const playerMass = 1;
+    const bulletMass = 0.125;
+    const elasticity = 1;
 
-    if (areDiscsTouching(bullet.position, bulletRadius, state.player.position, playerRadiusCur)) {
-        elasticCollision(state.player, bullet, 1, 0.125);
-        if (!state.player.meleeAttacking) {
-            damagePlayer(state);
-            return false;
+    if (areDiscsTouching(bullet.position, bulletRadius, state.player.position, playerRadius)) {
+        elasticCollision(state.player, bullet, playerMass, bulletMass, elasticity);
+        if (state.player.invulnerabilityTimer <= 0) {
+            damagePlayer(state, 1);
         }
+        return false;
     }
 
     return true;
@@ -398,15 +356,75 @@ function renderTurretBullets(bullets, renderer, matScreenFromWorld) {
     renderer.renderDiscs(matScreenFromWorld, discs);
 }
 
+function updateSpikes(state, dt) {
+    const velPrev = vec2.create();
+    const dpos = vec2.create();
+    for (const spike of state.level.spikes) {
+        vec2.copy(velPrev, spike.velocity);
+        slideToStop(spike, dt);
+        vec2.scaleAndAdd(spike.position, spike.position, velPrev, dt / 2);
+        vec2.scaleAndAdd(spike.position, spike.position, spike.velocity, dt / 2);
+
+        // Disable cooldown once spike is no longer near player.
+
+        if (spike.onContactCooldown) {
+            vec2.subtract(dpos, spike.position, state.player.position);
+            if (vec2.length(dpos) >= 1.5 * monsterRadius + playerRadius) {
+                spike.onContactCooldown = false;
+            }
+        }
+    }
+
+    // Fix up spike positions relative to the environment and other objects.
+
+    for (let i = 0; i < state.level.spikes.length; ++i)
+    {
+        const spike0 = state.level.spikes[i];
+
+        fixupPositionAndVelocityAgainstLevel(spike0.position, spike0.velocity, spike0.radius, state.level.grid);
+
+        if (spike0.dead)
+            continue;
+
+        for (let j = i + 1; j < state.level.spikes.length; ++j)
+        {
+            const spike1 = state.level.spikes[j];
+            if (spike1.dead)
+                continue;
+
+            fixupDiscPair(spike0, spike1);
+        }
+    }
+}
+
+function fractionOfLootCollected(state) {
+    return (state.level.numLootItemsTotal - state.level.lootItems.length) / state.level.numLootItemsTotal;
+}
+
+function turretFireDelay(state) {
+    return lerp(turretFireDelayStart, turretFireDelayEnd, fractionOfLootCollected(state));
+}
+
 function updateTurrets(state, dt) {
+    const dpos = vec2.create();
+
     for (const turret of state.level.turrets) {
         slideToStop(turret, dt);
         vec2.scaleAndAdd(turret.position, turret.position, turret.velocity, dt);
 
+        // Disable cooldown once spike is no longer near player.
+
+        if (turret.onContactCooldown) {
+            vec2.subtract(dpos, turret.position, state.player.position);
+            if (vec2.length(dpos) >= 1.5 * monsterRadius + playerRadius) {
+                turret.onContactCooldown = false;
+            }
+        }
+
         if (!turret.dead) {
             turret.timeToFire -= dt;
             if (turret.timeToFire <= 0) {
-                turret.timeToFire += turretFireDelay;
+                turret.timeToFire += turretFireDelay(state);
 
                 if (distanceBetween(turret.position, state.player.position) < 20) {
                     const dpos = vec2.create();
@@ -442,37 +460,111 @@ function updateTurrets(state, dt) {
         if (turret0.dead)
             continue;
 
+        for (const spike of state.level.spikes) {
+            if (spike.dead)
+                continue;
+
+            fixupDiscPair(turret0, spike);
+        }
+
         for (let j = i + 1; j < state.level.turrets.length; ++j)
         {
             const turret1 = state.level.turrets[j];
             if (turret1.dead)
                 continue;
 
-            fixupDiscPairs(turret0, turret1);
+            fixupDiscPair(turret0, turret1);
         }
     }
 }
 
 function updateSwarmers(state, dt) {
-    const swarmerSpeed = 4;
+    const uLoot = fractionOfLootCollected(state);
+    const accelerationRate = lerp(10, 20, uLoot);
+    const dragAccelerationRate = 3;
+    const perturbationAccelerationRate = 8;
+    const separationDist = 5;
+    const separationForce = 1;
+
+    const velPrev = vec2.create();
+    const perturbationDir = vec2.create();
+    const dpos = vec2.create();
 
     for (const swarmer of state.level.swarmers) {
-        swarmer.stunTimer = Math.max(0, swarmer.stunTimer - dt);
-        if (swarmer.dead || swarmer.stunTimer > 0) {
-            slideToStop(swarmer, dt);
-        } else if (distanceBetween(swarmer.position, state.player.position) < 24 &&
-            clearLineOfSight(state.level, swarmer.position, state.player.position)) {
-            const dposToTarget = vec2.create();
-            vec2.subtract(dposToTarget, swarmer.position, state.player.position);
-            const distToTarget = vec2.length(dposToTarget);
+        vec2.copy(velPrev, swarmer.velocity);
 
-            const accelerationRate = -16;
-            vec2.scaleAndAdd(swarmer.velocity, swarmer.velocity, dposToTarget, accelerationRate * dt / distToTarget);
-        } else {
+        swarmer.heading += swarmer.headingRate * dt;
+        swarmer.heading -= Math.floor(swarmer.heading);
+
+        if (swarmer.dead) {
             slideToStop(swarmer, dt);
+        } else {
+            const heading = swarmer.heading * 2 * Math.PI;
+            vec2.set(perturbationDir, Math.cos(heading), Math.sin(heading));
+
+            if (state.player.hitPoints > 0 && state.player.swarmerAttackCooldown <= 0) {
+                const dposToTarget = vec2.create();
+                vec2.subtract(dposToTarget, swarmer.position, state.player.position);
+                const distToTarget = vec2.length(dposToTarget);
+    
+                if (distToTarget < 24 && clearLineOfSight(state.level, swarmer.position, state.player.position)) {            
+                    vec2.scaleAndAdd(swarmer.velocity, swarmer.velocity, dposToTarget, -accelerationRate * dt / distToTarget);
+                }
+            }
+
+            vec2.scaleAndAdd(swarmer.velocity, swarmer.velocity, perturbationDir, perturbationAccelerationRate * dt);
+            vec2.scaleAndAdd(swarmer.velocity, swarmer.velocity, velPrev, -dragAccelerationRate * dt);
+
+            // Avoid other spikes, turrets, and swarmers
+
+            for (const spike of state.level.spikes) {
+                if (spike.dead)
+                    continue;
+                vec2.subtract(dpos, spike.position, swarmer.position);
+                const dist = vec2.length(dpos);
+                if (dist < separationDist) {
+                    const scale = (dist - separationDist) * (separationForce * dt / dist);
+                    vec2.scaleAndAdd(swarmer.velocity, swarmer.velocity, dpos, scale);
+                }
+            }
+
+            for (const turret of state.level.turrets) {
+                if (turret.dead)
+                    continue;
+                vec2.subtract(dpos, turret.position, swarmer.position);
+                const dist = vec2.length(dpos);
+                if (dist < separationDist) {
+                    const scale = (dist - separationDist) * (separationForce * dt / dist);
+                    vec2.scaleAndAdd(swarmer.velocity, swarmer.velocity, dpos, scale);
+                }
+            }
+
+            for (const swarmerOther of state.level.swarmers) {
+                if (swarmerOther.dead)
+                    continue;
+                if (swarmerOther == swarmer)
+                    continue;
+
+                vec2.subtract(dpos, swarmerOther.position, swarmer.position);
+                const dist = vec2.length(dpos);
+                if (dist < separationDist) {
+                    const scale = (dist - separationDist) * (separationForce * dt / dist);
+                    vec2.scaleAndAdd(swarmer.velocity, swarmer.velocity, dpos, scale);
+                }
+            }
         }
 
-        vec2.scaleAndAdd(swarmer.position, swarmer.position, swarmer.velocity, dt);
+        vec2.scaleAndAdd(swarmer.position, swarmer.position, velPrev, dt / 2);
+        vec2.scaleAndAdd(swarmer.position, swarmer.position, swarmer.velocity, dt / 2);
+
+        // Disable cooldown once swarmer is no longer near player.
+
+        if (swarmer.onContactCooldown) {
+            vec2.subtract(dpos, swarmer.position, state.player.position);
+            if (vec2.length(dpos) >= 1.5 * monsterRadius + playerRadius) {
+                swarmer.onContactCooldown = false;
+            }
+        }
     }
 
     // Fix up swarmer positions relative to the environment and other objects.
@@ -481,21 +573,10 @@ function updateSwarmers(state, dt) {
     {
         const swarmer0 = state.level.swarmers[i];
 
-        const vNormal = fixupPositionAndVelocityAgainstLevel(swarmer0.position, swarmer0.velocity, swarmer0.radius, state.level.grid);
+        fixupPositionAndVelocityAgainstLevel(swarmer0.position, swarmer0.velocity, swarmer0.radius, state.level.grid);
 
         if (swarmer0.dead)
             continue;
-
-        if (vNormal > 14) {
-            swarmer0.stunTimer = Math.max(swarmer0.stunTimer, 2.5);
-        }
-
-        for (const turret of state.level.turrets) {
-            if (turret.dead)
-                continue;
-
-            fixupDiscPairs(swarmer0, turret);
-        }
 
         for (let j = i + 1; j < state.level.swarmers.length; ++j)
         {
@@ -503,9 +584,71 @@ function updateSwarmers(state, dt) {
             if (swarmer1.dead)
                 continue;
 
-            fixupDiscPairs(swarmer0, swarmer1);
+            fixupDiscPair(swarmer0, swarmer1);
         }
     }
+}
+
+function renderSpikesDead(spikes, renderer, matScreenFromWorld) {
+    const color = { r: 0.45, g: 0.45, b: 0.45 };
+    const discs = spikes.filter(spike => spike.dead).map(spike => ({
+        position: spike.position,
+        color: color,
+        radius: monsterRadius,
+    }));
+
+    renderer.renderDiscs(matScreenFromWorld, discs);
+
+    const rect = glyphRect(111);
+    const rx = 0.25;
+    const ry = 0.5;
+    const yOffset = 0;
+    const glyphColor = 0xff808080;
+
+    for (const spike of spikes) {
+        if (spike.dead) {
+            const x = spike.position[0];
+            const y = spike.position[1];
+            renderer.renderGlyphs.add(
+                x - rx, y + yOffset - ry, x + rx, y + yOffset + ry,
+                rect.minX, rect.minY, rect.maxX, rect.maxY,
+                glyphColor
+            );
+        }
+    }
+
+    renderer.renderGlyphs.flush(matScreenFromWorld);
+}
+
+function renderSpikesAlive(spikes, renderer, matScreenFromWorld) {
+    const color = { r: 0.25, g: 0.34375, b: 0.25 };
+    const discs = spikes.filter(spike => !spike.dead).map(spike => ({
+        position: spike.position,
+        color: color,
+        radius: monsterRadius,
+    }));
+
+    renderer.renderDiscs(matScreenFromWorld, discs);
+
+    const rect = glyphRect(111);
+    const rx = 0.25;
+    const ry = 0.5;
+    const yOffset = 0;
+    const glyphColor = 0xff80b080;
+
+    for (const spike of spikes) {
+        if (!spike.dead) {
+            const x = spike.position[0];
+            const y = spike.position[1];
+            renderer.renderGlyphs.add(
+                x - rx, y + yOffset - ry, x + rx, y + yOffset + ry,
+                rect.minX, rect.minY, rect.maxX, rect.maxY,
+                glyphColor
+            );
+        }
+    }
+
+    renderer.renderGlyphs.flush(matScreenFromWorld);
 }
 
 function renderTurretsDead(turrets, renderer, matScreenFromWorld) {
@@ -539,12 +682,12 @@ function renderTurretsDead(turrets, renderer, matScreenFromWorld) {
     renderer.renderGlyphs.flush(matScreenFromWorld);
 }
 
-function renderTurretsAlive(turrets, renderer, matScreenFromWorld) {
+function renderTurretsAlive(state, turrets, renderer, matScreenFromWorld) {
     const colorWindup = { r: 1, g: 0.5, b: 0.25 };
     const color = { r: 0.34375, g: 0.25, b: 0.25 };
     const discs = turrets.filter(turret => !turret.dead).map(turret => ({
         position: turret.position,
-        color: colorLerp(colorWindup, color, Math.min(1, 4 * turret.timeToFire / turretFireDelay)),
+        color: colorLerp(colorWindup, color, Math.min(1, 4 * turret.timeToFire / turretFireDelay(state))),
         radius: monsterRadius,
     }));
 
@@ -581,7 +724,7 @@ function renderSwarmersDead(swarmers, renderer, matScreenFromWorld) {
 
     renderer.renderDiscs(matScreenFromWorld, discs);
 
-    const rect = glyphRect(114);
+    const rect = glyphRect(98);
     const rx = 0.25;
     const ry = 0.5;
     const yOffset = 0;
@@ -603,22 +746,20 @@ function renderSwarmersDead(swarmers, renderer, matScreenFromWorld) {
 }
 
 function renderSwarmersAlive(swarmers, renderer, matScreenFromWorld) {
-    const colorStunned = { r: 0.25, g: 0.34375, b: 0.25 };
-    const colorActive = { r: 0.25, g: 0.75, b: 0.25 };
+    const color = { r: 0.125, g: 0.125, b: 0.125 };
     const discs = swarmers.filter(swarmer => !swarmer.dead).map(swarmer => ({
         position: swarmer.position,
-        color: swarmer.stunTimer > 0 ? colorStunned : colorActive,
+        color: color,
         radius: monsterRadius,
     }));
 
     renderer.renderDiscs(matScreenFromWorld, discs);
 
-    const rect = glyphRect(114);
+    const rect = glyphRect(98);
     const rx = 0.25;
     const ry = 0.5;
     const yOffset = 0;
-    const glyphColorActive = 0xff208020;
-    const glyphColorStunned = 0xff80b080;
+    const glyphColor = 0xff5555ff;
 
     for (const swarmer of swarmers) {
         if (!swarmer.dead) {
@@ -627,7 +768,7 @@ function renderSwarmersAlive(swarmers, renderer, matScreenFromWorld) {
             renderer.renderGlyphs.add(
                 x - rx, y + yOffset - ry, x + rx, y + yOffset + ry,
                 rect.minX, rect.minY, rect.maxX, rect.maxY,
-                swarmer.stunTimer > 0 ? glyphColorStunned : glyphColorActive
+                glyphColor
             );
         }
     }
@@ -687,6 +828,7 @@ function createRenderer(gl, fontImage) {
         renderDiscs: createDiscRenderer(gl),
         renderGlyphs: createGlyphRenderer(gl, fontImage),
         renderColoredTriangles: createColoredTriangleRenderer(gl),
+        renderVignette: createVignetteRenderer(gl),
     };
 
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -700,6 +842,8 @@ function initState(createFieldRenderer, createLightingRenderer) {
     const state = {
         paused: true,
         showMap: false,
+        mapZoom: 1,
+        mapZoomVelocity: 0,
         mouseSensitivity: 0,
     };
     resetState(state, createFieldRenderer, createLightingRenderer);
@@ -720,10 +864,13 @@ function resetState(state, createFieldRenderer, createLightingRenderer) {
         velocity: vec2.create(),
         radius: playerRadius,
         color: { r: 0, g: 0, b: 0 },
-        meleeAttacking: false,
-        meleeAttackCooldown: 0,
+        numInvulnerabilityPotions: 1,
+        invulnerabilityTimer: 0,
+        numBullets: 3,
         amuletCollected: false,
         hitPoints: playerMaxHitPoints,
+        damageDisplayTimer: 0,
+        swarmerAttackCooldown: 0,
         dead: false,
     };
 
@@ -824,7 +971,8 @@ function createFieldRenderer(gl) {
         void main() {
             highp float distance = mix(fDistance.x, fDistance.y, fYBlend);
             highp float s = distance - uDistCutoff;
-            highp vec4 lavaColor = texture2D(uContour, vec2(s - uScroll, 0)) * vec4(1, 0.25, 0, 1);
+            highp vec4 contourColor = texture2D(uContour, vec2(s - uScroll, 0));
+            highp vec4 lavaColor = contourColor * vec4(1, 0.25, 0, 1);
             highp vec4 floorColor = vec4(1, 1, 1, 0);
             highp vec4 color = mix(lavaColor, floorColor, max(0.0, sign(s)));
             gl_FragColor = color;
@@ -858,9 +1006,9 @@ function createFieldRenderer(gl) {
         for (let y = 0; y < gridSizeY; ++y) {
             for (let x = 0; x < gridSizeX; ++x) {
                 const tileType = level.grid.get(x, y);
-                if (tileType == ttHall || tileType == ttRoom) {
-                    ++numQuads;
-                }
+                if (tileType != ttHall && tileType != ttRoom)
+                    continue;
+                ++numQuads;
             }
         }
 
@@ -977,13 +1125,14 @@ function createLightingRenderer(gl) {
 
         uniform highp float uDistCenterFromEntrance;
         uniform highp float uDistCenterFromExit;
+        uniform highp float uAlphaEntrance;
 
         void main() {
             highp float distanceFromEntrance = mix(fDistanceFromEntrance.x, fDistanceFromEntrance.y, fYBlend);
             highp float distanceFromExit = mix(fDistanceFromExit.x, fDistanceFromExit.y, fYBlend);
-            highp float uEntrance = clamp((uDistCenterFromEntrance - distanceFromEntrance - 8.0) * 0.0625, 0.0, 1.0);
+            highp float uEntrance = 1.0 - smoothstep(uDistCenterFromEntrance - 8.0, uDistCenterFromEntrance, distanceFromEntrance);
             highp float uExit = clamp((uDistCenterFromExit - distanceFromExit + 6.0) * 0.0625, 0.0, 1.0);
-            gl_FragColor.rgb = vec3(0.25, 0.3, 0.333) * uEntrance * uEntrance + vec3(1, 0, 0) * uExit;
+            gl_FragColor.rgb = vec3(0.22, 0.3, 0.333) * uEntrance * uEntrance * uAlphaEntrance + vec3(1, 0, 0) * uExit;
         }
     `;
 
@@ -999,6 +1148,7 @@ function createLightingRenderer(gl) {
         uMatScreenFromField: gl.getUniformLocation(program, 'uMatScreenFromField'),
         uDistCenterFromEntrance: gl.getUniformLocation(program, 'uDistCenterFromEntrance'),
         uDistCenterFromExit: gl.getUniformLocation(program, 'uDistCenterFromExit'),
+        uAlphaEntrance: gl.getUniformLocation(program, 'uAlphaEntrance'),
     };
 
     const vertexBuffer = gl.createBuffer();
@@ -1012,9 +1162,9 @@ function createLightingRenderer(gl) {
         for (let y = 0; y < gridSizeY; ++y) {
             for (let x = 0; x < gridSizeX; ++x) {
                 const tileType = level.grid.get(x, y);
-                if (tileType == ttHall || tileType == ttRoom) {
-                    ++numQuads;
-                }
+                if (tileType != ttHall && tileType != ttRoom)
+                    continue;
+                ++numQuads;
             }
         }
 
@@ -1082,13 +1232,14 @@ function createLightingRenderer(gl) {
         gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indexData, gl.STATIC_DRAW);
 
         // Return a function that will take a matrix and do the actual rendering.
-        return (matScreenFromWorld, distCenterFromEntrance, distCenterFromExit) => {
+        return (matScreenFromWorld, distCenterFromEntrance, distCenterFromExit, alphaEntrance) => {
             gl.useProgram(program);
 
             gl.uniformMatrix4fv(uniformLoc.uMatScreenFromField, false, matScreenFromWorld);
 
             gl.uniform1f(uniformLoc.uDistCenterFromEntrance, distCenterFromEntrance);
             gl.uniform1f(uniformLoc.uDistCenterFromExit, distCenterFromExit);
+            gl.uniform1f(uniformLoc.uAlphaEntrance, alphaEntrance);
 
             gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
             gl.enableVertexAttribArray(vertexAttributeLoc.vPosition);
@@ -1483,9 +1634,92 @@ function createColoredTriangleRenderer(gl) {
     };
 }
 
+function createVignetteRenderer(gl) {
+    const vsSource = `
+        attribute vec2 vPositionScreen;
+
+        uniform mat4 uMatDiscFromScreen;
+
+        varying highp vec2 fPositionDisc;
+
+        void main() {
+            highp vec4 posScreen = vec4(vPositionScreen.xy, 0, 1);
+            fPositionDisc = (uMatDiscFromScreen * posScreen).xy;
+            gl_Position = posScreen;
+        }
+    `;
+
+    const fsSource = `
+        varying highp vec2 fPositionDisc;
+
+        uniform highp vec4 uColorInner;
+        uniform highp vec4 uColorOuter;
+        uniform highp float uRadiusInner;
+
+        void main() {
+            highp float r = length(fPositionDisc);
+            highp float u = smoothstep(uRadiusInner, 1.0, r);
+            gl_FragColor = mix(uColorInner, uColorOuter, u);
+        }
+    `;
+
+    const program = initShaderProgram(gl, vsSource, fsSource);
+
+    const vLocPositionScreen = gl.getAttribLocation(program, 'vPositionScreen');
+    const uLocMatDiscFromScreen = gl.getUniformLocation(program, 'uMatDiscFromScreen');
+    const uLocColorInner = gl.getUniformLocation(program, 'uColorInner');
+    const uLocColorOuter = gl.getUniformLocation(program, 'uColorOuter');
+    const uLocRadiusInner = gl.getUniformLocation(program, 'uRadiusInner');
+
+    const vertexData = new Float32Array(6 * 2);
+    {
+        let i = 0;
+
+        function makeVert(x, y) {
+            vertexData[i++] = x;
+            vertexData[i++] = y;
+        }
+
+        makeVert(-1, -1);
+        makeVert( 1, -1);
+        makeVert( 1,  1);
+        makeVert( 1,  1);
+        makeVert(-1,  1);
+        makeVert(-1, -1);
+    }
+
+    const vertexBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, vertexData, gl.STATIC_DRAW);
+
+    return (matDiscFromScreen, radiusInner, colorInner, colorOuter) => {
+        gl.useProgram(program);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+        gl.enableVertexAttribArray(vLocPositionScreen);
+        gl.vertexAttribPointer(vLocPositionScreen, 2, gl.FLOAT, false, 0, 0);
+
+        gl.uniformMatrix4fv(uLocMatDiscFromScreen, false, matDiscFromScreen);
+        gl.uniform1f(uLocRadiusInner, radiusInner);
+        gl.uniform4fv(uLocColorInner, colorInner);
+        gl.uniform4fv(uLocColorOuter, colorOuter);
+
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+    
+        gl.disableVertexAttribArray(vLocPositionScreen);
+    };
+}
+
 function slideToStop(body, dt) {
     const r = Math.exp(-3 * dt);
     vec2.scale(body.velocity, body.velocity, r);
+}
+
+function posInRect(position, rect) {
+    return (position[0] >= rect.minX &&
+            position[1] >= rect.minY &&
+            position[0] < rect.minX + rect.sizeX &&
+            position[1] < rect.minY + rect.sizeY);
 }
 
 function updateState(state, dt) {
@@ -1496,23 +1730,14 @@ function updateState(state, dt) {
         slideToStop(state.player, dt);
     }
 
+    state.player.swarmerAttackCooldown = Math.max(0, state.player.swarmerAttackCooldown - dt);
+    state.player.damageDisplayTimer = Math.max(0, state.player.damageDisplayTimer - dt);
+    state.player.invulnerabilityTimer = Math.max(0, state.player.invulnerabilityTimer - dt);
+    if (state.player.hitPoints > 0) {
+        state.player.numBullets = Math.min(bulletMaxCapacity, state.player.numBullets + bulletRefillRate * dt);
+    }
+
     vec2.scaleAndAdd(state.player.position, state.player.position, state.player.velocity, dt);
-
-    fixupPositionAndVelocityAgainstLevel(state.player.position, state.player.velocity, state.player.radius, state.level.grid);
-
-    for (const turret of state.level.turrets) {
-        if (!turret.dead) {
-            fixupDiscPairs(state.player, turret);
-        }
-    }
-
-    for (const swarmer of state.level.swarmers) {
-        if (!swarmer.dead) {
-            fixupDiscPairs(state.player, swarmer);
-        }
-    }
-
-    updateMeleeAttack(state, dt);
 
     // Game-end message
 
@@ -1520,10 +1745,7 @@ function updateState(state, dt) {
 
     if (state.player.amuletCollected &&
         state.gameState == gsActive &&
-        state.player.position[0] >= state.level.startRoom.minX &&
-        state.player.position[1] >= state.level.startRoom.minY &&
-        state.player.position[0] < state.level.startRoom.minX + state.level.startRoom.sizeX &&
-        state.player.position[1] < state.level.startRoom.minY + state.level.startRoom.sizeY) {
+        posInRect(state.player.position, state.level.startRoom)) {
         state.gameState = gsWon;
         state.timeToGameEndMessage = delayGameEndMessage;
     }
@@ -1531,12 +1753,67 @@ function updateState(state, dt) {
     // Other
 
     updateLootItems(state);
+    updatePotions(state);
     updateCamera(state, dt);
     updateLava(state, dt);
+    updateSpikes(state, dt);
     updateTurrets(state, dt);
     updateSwarmers(state, dt);
     updatePlayerBullets(state, dt);
     updateTurretBullets(state, dt);
+
+    // Collide player against objects and the environment
+
+    const spikeElasticity = 0.2;
+    const turretElasticity = 0.5;
+    const swarmerElasticity = 0.8;
+    const spikeMass = 1.5;
+    const turretMass = 1;
+    const swarmerMass = 0.25;
+
+    for (let i = 0; i < 4; ++i) {
+        for (const spike of state.level.spikes) {
+            if (!spike.dead) {
+                if (collideDiscs(state.player, spike, 1, spikeMass, spikeElasticity)) {
+                    if (state.player.invulnerabilityTimer > 0) {
+                        spike.dead = true;
+                    } else if (!spike.onContactCooldown) {
+                        damagePlayer(state, 1);
+                        spike.onContactCooldown = true;
+                    }
+                }
+            }
+        }
+
+        for (const turret of state.level.turrets) {
+            if (!turret.dead) {
+                if (collideDiscs(state.player, turret, 1, turretMass, turretElasticity)) {
+                    if (state.player.invulnerabilityTimer > 0) {
+                        turret.dead = true;
+                    } else if (!turret.onContactCooldown) {
+                        damagePlayer(state, 1);
+                        turret.onContactCooldown = true;
+                    }
+                }
+            }
+        }
+
+        for (const swarmer of state.level.swarmers) {
+            if (!swarmer.dead) {
+                if (collideDiscs(state.player, swarmer, 1, swarmerMass, swarmerElasticity)) {
+                    if (state.player.invulnerabilityTimer > 0) {
+                        swarmer.dead = true;
+                    } else if (!swarmer.onContactCooldown) {
+                        damagePlayer(state, 1);
+                        state.player.swarmerAttackCooldown = swarmerAttackCooldownDuration;
+                        swarmer.onContactCooldown = true;
+                    }
+                }
+            }
+        }
+    
+        fixupPositionAndVelocityAgainstLevel(state.player.position, state.player.velocity, state.player.radius, state.level.grid);
+    }
 }
 
 function updateLava(state, dt) {
@@ -1548,10 +1825,7 @@ function updateLava(state, dt) {
     // Activate lava when player reaches the exit and then leaves
 
     if (state.lava.state == lavaStatePrimed) {
-        if (state.player.position[0] < state.level.amuletRoom.minX ||
-            state.player.position[1] < state.level.amuletRoom.minY ||
-            state.player.position[0] >= state.level.amuletRoom.minX + state.level.amuletRoom.sizeX ||
-            state.player.position[1] >= state.level.amuletRoom.minY + state.level.amuletRoom.sizeY) {
+        if (!posInRect(state.player.position, state.level.amuletRoom)) {
             state.lava.state = lavaStateActive;
         }
     } else if (state.lava.state == lavaStateInactive) {
@@ -1575,14 +1849,14 @@ function updateLava(state, dt) {
         state.lava.levelTarget = entranceDistFromExit - 4;
     } else {
         const playerDistFromExit = estimateDistance(state.distanceFieldFromExit, state.player.position);
-        const levelTarget = (playerDistFromExit < 6) ? 0 : playerDistFromExit + 8;
+        const levelTarget = (playerDistFromExit < 6) ? 0 : playerDistFromExit + 4;
         state.lava.levelTarget = Math.max(state.lava.levelTarget, levelTarget);
     }
 
     const levelError = state.lava.levelTarget - state.lava.levelBase;
     const levelVelocityError = -state.lava.levelBaseVelocity;
 
-    const lavaLevelSpring = 1.5;
+    const lavaLevelSpring = 1.25;
 
     const levelAcceleration = levelError * lavaLevelSpring**2 + levelVelocityError * 2 * lavaLevelSpring;
 
@@ -1592,8 +1866,14 @@ function updateLava(state, dt) {
 
     // Test objects against lava to see if it kills them
 
-    if (isPosInLava(state, state.player.position)) {
-        killPlayer(state);
+    if (isPosInLava(state, state.player.position) && state.player.invulnerabilityTimer <= 0) {
+        damagePlayer(state, 100);
+    }
+
+    for (const spike of state.level.spikes) {
+        if (!spike.dead && isPosInLava(state, spike.position)) {
+            spike.dead = true;
+        }
     }
 
     for (const turret of state.level.turrets) {
@@ -1611,6 +1891,15 @@ function updateLava(state, dt) {
 
 function updateCamera(state, dt) {
 
+    // Animate map zoom
+
+    const mapZoomTarget = state.showMap ? 0 : 1;
+    const kSpringMapZoom = 12;
+    const mapZoomAccel = ((mapZoomTarget - state.mapZoom) * kSpringMapZoom - 2 * state.mapZoomVelocity) * kSpringMapZoom;
+    const mapZoomVelNew = state.mapZoomVelocity + mapZoomAccel * dt;
+    state.mapZoom += (state.mapZoomVelocity + mapZoomVelNew) * (dt / 2);
+    state.mapZoomVelocity = mapZoomVelNew;
+
     // Animate jolt
 
     if (state.lava.state != lavaStateInactive) {
@@ -1626,7 +1915,7 @@ function updateCamera(state, dt) {
 
     const accJolt = vec2.create();
     vec2.scale(accJolt, state.camera.joltOffset, -(kSpringJolt**2));
-    vec2.scaleAndAdd(accJolt, accJolt, state.camera.joltVelocity, -1.5*kSpringJolt);
+    vec2.scaleAndAdd(accJolt, accJolt, state.camera.joltVelocity, -kSpringJolt);
 
     const velJoltNew = vec2.create();
     vec2.scaleAndAdd(velJoltNew, state.camera.joltVelocity, accJolt, dt);
@@ -1673,10 +1962,17 @@ function isPosInLava(state, position) {
     return distFromExit < state.lava.levelBase;
 }
 
-function damagePlayer(state) {
-    state.player.hitPoints = Math.max(0, state.player.hitPoints - 1);
-    state.player.meleeAttacking = false;
-    state.player.meleeAttackCooldown = 0;
+function damagePlayer(state, numHitPoints) {
+    const hitPointsPrev = state.player.hitPoints;
+    state.player.hitPoints = Math.max(0, state.player.hitPoints - numHitPoints);
+    if (state.player.hitPoints >= hitPointsPrev)
+        return;
+
+    if (hitPointsPrev > 0) {
+        state.player.damageDisplayTimer = damageDisplayDuration;
+    }
+
+    state.player.invulnerabilityTimer = 0;
 
     if (state.player.hitPoints <= 0 && state.gameState != gsDied) {
         state.gameState = gsDied;
@@ -1684,41 +1980,40 @@ function damagePlayer(state) {
     }
 }
 
-function killPlayer(state) {
-    state.player.hitPoints = 0;
-    state.player.meleeAttacking = false;
-    state.player.meleeAttackCooldown = 0;
-
-    if (state.gameState != gsDied) {
-        state.gameState = gsDied;
-        state.timeToGameEndMessage = delayGameEndMessage;
-    }
+function fixupDiscPair(disc0, disc1) {
+    collideDiscs(disc0, disc1, 1, 1, 0);
 }
 
-function fixupDiscPairs(disc0, disc1) {
+function collideDiscs(disc0, disc1, mass0, mass1, elasticity) {
     const dpos = vec2.create();
     vec2.subtract(dpos, disc1.position, disc0.position);
     const d = vec2.length(dpos);
     const dist = d - (disc0.radius + disc1.radius);
 
-    if (dist < 0) {
-        const scalePosFixup = dist / (2 * d);
-        vec2.scaleAndAdd(disc0.position, disc0.position, dpos, scalePosFixup);
-        vec2.scaleAndAdd(disc1.position, disc1.position, dpos, -scalePosFixup);
-
-        const dvel = vec2.create();
-        vec2.subtract(dvel, disc1.velocity, disc0.velocity);
-        const vn = vec2.dot(dpos, dvel);
-
-        if (vn < 0) {
-            const scaleVelFixup = vn / (2 * d*d);
-            vec2.scaleAndAdd(disc0.velocity, disc0.velocity, dpos, scaleVelFixup);
-            vec2.scaleAndAdd(disc1.velocity, disc1.velocity, dpos, -scaleVelFixup);
-        }
+    if (dist >= 0) {
+        return false;
     }
+
+    const scalePosFixup = dist / (d * (mass0 + mass1));
+    vec2.scaleAndAdd(disc0.position, disc0.position, dpos, scalePosFixup * mass1);
+    vec2.scaleAndAdd(disc1.position, disc1.position, dpos, -scalePosFixup * mass0);
+
+    const dvel = vec2.create();
+    vec2.subtract(dvel, disc1.velocity, disc0.velocity);
+    const vn = vec2.dot(dpos, dvel);
+
+    if (vn >= 0) {
+        return false;
+    }
+
+    const scaleVelFixup = ((1 + elasticity) * vn) / (d * d * (mass0 + mass1));
+    vec2.scaleAndAdd(disc0.velocity, disc0.velocity, dpos, scaleVelFixup * mass1);
+    vec2.scaleAndAdd(disc1.velocity, disc1.velocity, dpos, -scaleVelFixup * mass0);
+
+    return true;
 }
 
-function elasticCollision(disc0, disc1, mass0, mass1) {
+function elasticCollision(disc0, disc1, mass0, mass1, elasticity) {
     const dpos = vec2.create();
     vec2.subtract(dpos, disc1.position, disc0.position);
     const d = vec2.length(dpos);
@@ -1727,11 +2022,15 @@ function elasticCollision(disc0, disc1, mass0, mass1) {
     vec2.subtract(dvel, disc1.velocity, disc0.velocity);
     const vn = vec2.dot(dpos, dvel);
 
-    if (vn < 0) {
-        const scaleVelFixup = (2 * vn) / (d * d * (mass0 + mass1));
-        vec2.scaleAndAdd(disc0.velocity, disc0.velocity, dpos, scaleVelFixup * mass1);
-        vec2.scaleAndAdd(disc1.velocity, disc1.velocity, dpos, -scaleVelFixup * mass0);
+    if (vn >= 0) {
+        return false;
     }
+
+    const scaleVelFixup = ((1 + elasticity) * vn) / (d * d * (mass0 + mass1));
+    vec2.scaleAndAdd(disc0.velocity, disc0.velocity, dpos, scaleVelFixup * mass1);
+    vec2.scaleAndAdd(disc1.velocity, disc1.velocity, dpos, -scaleVelFixup * mass0);
+
+    return true;
 }
 
 function isDiscTouchingLevel(discPos, discRadius, level) {
@@ -1930,64 +2229,38 @@ function fixupPositionAndVelocityAgainstDisc(position, velocity, radius, discPos
     return true;
 }
 
+function lerp(a, b, u) {
+    return a + (b - a) * u;
+}
+
 function renderScene(renderer, state) {
     const screenSize = vec2.create();
     renderer.beginFrame(screenSize);
 
     const matScreenFromWorld = mat4.create();
-
-    if (state.showMap) {
-        const mapSizeX = state.level.grid.sizeX + 2;
-        const mapSizeY = state.level.grid.sizeY + 2;
-        let rx, ry;
-        if (screenSize[0] * mapSizeY < screenSize[1] * mapSizeX) {
-            // horizontal is limiting dimension
-            rx = mapSizeX / 2;
-            ry = rx * screenSize[1] / screenSize[0];
-        } else {
-            // vertical is limiting dimension
-            ry = mapSizeY / 2;
-            rx = ry * screenSize[0] / screenSize[1];
-        }
-        const cx = state.level.grid.sizeX / 2;
-        const cy = state.level.grid.sizeY / 2;
-        mat4.ortho(matScreenFromWorld, cx - rx, cx + rx, cy - ry, cy + ry, 1, -1);
-    } else {
-        const cx = state.camera.position[0] + state.camera.joltOffset[0];
-        const cy = state.camera.position[1] + state.camera.joltOffset[1];
-        const r = 18;
-        let rx, ry;
-        if (screenSize[0] < screenSize[1]) {
-            rx = r;
-            ry = r * screenSize[1] / screenSize[0];
-        } else {
-            ry = r;
-            rx = r * screenSize[0] / screenSize[1];
-        }
-
-        mat4.ortho(matScreenFromWorld, cx - rx, cx + rx, cy - ry, cy + ry, 1, -1);
-    }
+    setupViewMatrix(state, screenSize, matScreenFromWorld);
 
     renderer.renderColoredTriangles(matScreenFromWorld, state.level.vertexData);
 
+    renderSpikesDead(state.level.spikes, renderer, matScreenFromWorld);
     renderTurretsDead(state.level.turrets, renderer, matScreenFromWorld);
     renderSwarmersDead(state.level.swarmers, renderer, matScreenFromWorld);
 
     renderLootItems(state, renderer, matScreenFromWorld);
+    renderPotions(state, renderer, matScreenFromWorld);
 
     if (state.lava.state == lavaStateActive) {
         state.renderField(matScreenFromWorld, state.lava.levelBase, state.lava.textureScroll);
     }
 
-    renderMeleeAttack(state, renderer, matScreenFromWorld);
-
-    renderTurretsAlive(state.level.turrets, renderer, matScreenFromWorld);
+    renderSpikesAlive(state.level.spikes, renderer, matScreenFromWorld);
+    renderTurretsAlive(state, state.level.turrets, renderer, matScreenFromWorld);
     renderSwarmersAlive(state.level.swarmers, renderer, matScreenFromWorld);
 
     renderTurretBullets(state.turretBullets, renderer, matScreenFromWorld);
     renderPlayerBullets(state, renderer, matScreenFromWorld);
 
-    state.player.color = colorLerp({ r: 0, g: 0, b: 0 }, { r: 0, g: 1, b: 1 }, state.player.meleeAttackCooldown / meleeAttackMaxDuration);
+    state.player.color = (state.player.invulnerabilityTimer > 0) ? { r: 0, g: 1, b: 1 } : { r: 0, g: 0, b: 0 };
     renderer.renderDiscs(matScreenFromWorld, [state.player]);
 
     {
@@ -2006,13 +2279,20 @@ function renderScene(renderer, state) {
         renderer.renderGlyphs.flush(matScreenFromWorld);
     }
 
-    const playerDistFromEntrance = state.showMap ? -10000 : Math.max(30, estimateDistance(state.distanceFieldFromEntrance, state.player.position));
-    state.renderLighting(matScreenFromWorld, playerDistFromEntrance, state.lava.levelBase);
+    const distFromEntrance = Math.max(30, estimateDistance(state.distanceFieldFromEntrance, state.camera.position));
+    state.renderLighting(matScreenFromWorld, distFromEntrance - 10, state.lava.levelBase, state.mapZoom);
+
+    // Damage vignette
+
+    renderDamageVignette(state.player.invulnerabilityTimer, state.player.hitPoints, state.player.damageDisplayTimer, renderer, screenSize);
 
     // Status displays
 
     renderHealthMeter(state, renderer, screenSize);
     renderLootCounter(state, renderer, screenSize);
+    renderBulletAndPotionCounter(state, renderer, screenSize);
+
+    // Text
 
     if (state.paused) {
         renderTextLines(renderer, screenSize, [
@@ -2039,30 +2319,109 @@ function renderScene(renderer, state) {
             '   Esc: Pause, R: Restart',
         ]);
     } else if (state.gameState == gsDied && state.timeToGameEndMessage <= 0) {
-        if (state.player.amuletCollected) {
-            renderTextLines(renderer, screenSize, [
-                '  CURSE THE CURSE!',
-                'Esc: Pause, R: Retry',
-            ]);
-        } else {
-            renderTextLines(renderer, screenSize, [
-                'MY LUCK HAS RUN OUT.',
-                'Esc: Pause, R: Retry',
-            ]);
-        }
+        renderTextLines(renderer, screenSize, [
+            '   DEATH HAS COME',
+            'Esc: Pause, R: Retry',
+        ]);
     }
+}
+
+function setupViewMatrix(state, screenSize, matScreenFromWorld) {
+    const mapSizeX = state.level.grid.sizeX + 2;
+    const mapSizeY = state.level.grid.sizeY + 2;
+
+    let rxMap, ryMap;
+    if (screenSize[0] * mapSizeY < screenSize[1] * mapSizeX) {
+        // horizontal is limiting dimension
+        rxMap = mapSizeX / 2;
+        ryMap = rxMap * screenSize[1] / screenSize[0];
+    } else {
+        // vertical is limiting dimension
+        ryMap = mapSizeY / 2;
+        rxMap = ryMap * screenSize[0] / screenSize[1];
+    }
+    const cxMap = state.level.grid.sizeX / 2;
+    const cyMap = state.level.grid.sizeY / 2;
+
+    const cxGame = state.camera.position[0] + state.camera.joltOffset[0];
+    const cyGame = state.camera.position[1] + state.camera.joltOffset[1];
+    const rGame = 18;
+    let rxGame, ryGame;
+    if (screenSize[0] < screenSize[1]) {
+        rxGame = rGame;
+        ryGame = rGame * screenSize[1] / screenSize[0];
+    } else {
+        ryGame = rGame;
+        rxGame = rGame * screenSize[0] / screenSize[1];
+    }
+
+    const rxZoom = lerp(rxMap, rxGame, state.mapZoom);
+    const ryZoom = lerp(ryMap, ryGame, state.mapZoom);
+    const cxZoom = lerp(cxMap, cxGame, state.mapZoom);
+    const cyZoom = lerp(cyMap, cyGame, state.mapZoom);
+
+    mat4.ortho(matScreenFromWorld, cxZoom - rxZoom, cxZoom + rxZoom, cyZoom - ryZoom, cyZoom + ryZoom, 1, -1);
+}
+
+function renderDamageVignette(invulnerabilityTimer, hitPoints, damageDisplayTimer, renderer, screenSize) {
+    let u = 0;
+    let colorInner, colorOuter;
+
+    if (invulnerabilityTimer > 0) {
+        if (invulnerabilityTimer > 1) {
+            u = 1 - 0.65 * ((1 - invulnerabilityTimer / invulnerabilityDuration) ** 2);
+        } else {
+            u = (Math.floor(invulnerabilityTimer * 10) % 2) == 0 ? 0.8 : 0.2;
+        }
+        colorInner = [0, 1, 1, 0.05];
+        colorOuter = [0, 1, 1, 0.5];
+    } else if (damageDisplayTimer > 0) {
+        u = Math.max(1, (playerMaxHitPoints - hitPoints)) * damageDisplayTimer / damageDisplayDuration;
+        colorInner = [1, 0, 0, Math.min(1.0, u * 0.05)];
+        colorOuter = [1, 0, 0, Math.min(1.0, u * 0.5)];
+    }
+
+    if (u <= 0)
+        return;
+
+    colorInner[3] = Math.min(1, colorInner[3] * u);
+    colorOuter[3] = Math.min(1, colorOuter[3] * u);
+
+    const radiusInner = 0.8;
+    const radiusOuter = 1.5;
+
+    const matDiscFromScreen = mat4.create();
+    if (screenSize[0] < screenSize[1]) {
+        matDiscFromScreen[0] = screenSize[0] / screenSize[1];
+    } else {
+        matDiscFromScreen[5] = screenSize[1] / screenSize[0];
+    }
+
+    matDiscFromScreen[0] /= radiusOuter;
+    matDiscFromScreen[5] /= radiusOuter;
+
+    renderer.renderVignette(matDiscFromScreen, radiusInner / radiusOuter, colorInner, colorOuter);
 }
 
 function renderHealthMeter(state, renderer, screenSize) {
     const rect = glyphRect(3);
-    const glyphColorHeartFilled = 0xff0000ff;
+    const glyphColorHeartFilled = 0xff0000aa;
     const glyphColorHeartEmpty = 0xff202020;
+    const glyphColorHeartOvercharge = 0xff5555ff;
 
     for (let i = 0; i < playerMaxHitPoints; ++i) {
         renderer.renderGlyphs.add(
             i, 0, i + 1, 1,
             rect.minX, rect.minY, rect.maxX, rect.maxY,
             i < state.player.hitPoints ? glyphColorHeartFilled : glyphColorHeartEmpty
+        );
+    }
+
+    for (let i = playerMaxHitPoints; i < state.player.hitPoints; ++i) {
+        renderer.renderGlyphs.add(
+            i, 0, i + 1, 1,
+            rect.minX, rect.minY, rect.maxX, rect.maxY,
+            glyphColorHeartOvercharge
         );
     }
 
@@ -2118,6 +2477,57 @@ function renderLootCounter(state, renderer, screenSize) {
     const numCharsX = screenSize[0] / pixelsPerCharX;
     const numCharsY = screenSize[1] / pixelsPerCharY;
     const offsetX = (cCh + 1) - numCharsX;
+    const offsetY = 0;
+
+    const matScreenFromTextArea = mat4.create();
+    mat4.ortho(
+        matScreenFromTextArea,
+        offsetX,
+        offsetX + numCharsX,
+        offsetY,
+        offsetY + numCharsY,
+        1,
+        -1);
+    renderer.renderGlyphs.flush(matScreenFromTextArea);
+}
+
+function renderBulletAndPotionCounter(state, renderer, screenSize) {
+    const color = 0xffffff55;
+    const colorDim = 0xff202000;
+
+    const numBullets = Math.floor(state.player.numBullets);
+
+    for (let i = 0; i < bulletMaxCapacity; ++i) {
+        const rect = glyphRect(157);
+        renderer.renderGlyphs.add(
+            i, 0, i + 1, 1,
+            rect.minX, rect.minY, rect.maxX, rect.maxY,
+            (i < numBullets) ? color : colorDim
+        );
+    }
+
+    const strMsg = '     ' + state.player.numInvulnerabilityPotions + '\xad';
+    const cCh = strMsg.length;
+
+    for (let i = 0; i < cCh; ++i) {
+        const rect = glyphRect(strMsg.charCodeAt(i));
+        renderer.renderGlyphs.add(
+            i + bulletMaxCapacity, 0, i + bulletMaxCapacity + 1, 1,
+            rect.minX, rect.minY, rect.maxX, rect.maxY,
+            color
+        );
+    }
+
+    const minCharsX = 40;
+    const minCharsY = 20;
+    const scaleLargestX = Math.max(1, Math.floor(screenSize[0] / (8 * minCharsX)));
+    const scaleLargestY = Math.max(1, Math.floor(screenSize[1] / (16 * minCharsY)));
+    const scaleFactor = Math.min(scaleLargestX, scaleLargestY);
+    const pixelsPerCharX = 8 * scaleFactor;
+    const pixelsPerCharY = 16 * scaleFactor;
+    const numCharsX = screenSize[0] / pixelsPerCharX;
+    const numCharsY = screenSize[1] / pixelsPerCharY;
+    const offsetX = -Math.floor((screenSize[0] - (cCh + bulletMaxCapacity) * pixelsPerCharX) / 2) / pixelsPerCharX;
     const offsetY = 0;
 
     const matScreenFromTextArea = mat4.create();
@@ -2314,6 +2724,8 @@ function updateDistanceField(grid, distanceField, posSource) {
     let toVisit = [{priority: 0, x: sourceX, y: sourceY}];
 
     fastMarchFill(distanceField, toVisit, (x, y) => estimatedDistance(grid, distanceField, x, y));
+
+    floodFillImpassableAreas(distanceField);
 }
 
 function fastMarchFill(field, toVisit, estimatedDistance) {
@@ -2386,50 +2798,84 @@ function estimatedDistance(grid, distanceField, x, y) {
     return d;
 }
 
-function safeDistance(distanceField, x, y) {
-    if (x < 0 || y < 0 || x >= distanceField.sizeX || y >= distanceField.sizeY)
-        return 1e4;
+function floodFillImpassableAreas(field) {
+    const toVisit = [];
 
-    return distanceField.get(x, y);
+    for (let y = 0; y < field.sizeY; ++y) {
+        for (let x = 0; x < field.sizeX; ++x) {
+            const d = field.get(x, y);
+            if (d === Infinity)
+                continue;
+
+            if (x < field.sizeX - 1) {
+                const d = estimatedDistanceSimple(field, x + 1, y);
+                if (d < field.get(x+1, y)) {
+                    priorityQueuePush(toVisit, {priority: d, x: x+1, y: y});
+                }
+            }
+
+            if (x > 0) {
+                const d = estimatedDistanceSimple(field, x - 1, y);
+                if (d < field.get(x-1, y)) {
+                    priorityQueuePush(toVisit, {priority: d, x: x-1, y: y});
+                }
+            }
+
+            if (y < field.sizeY - 1) {
+                const d = estimatedDistanceSimple(field, x, y + 1);
+                if (d < field.get(x, y+1)) {
+                    priorityQueuePush(toVisit, {priority: d, x: x, y: y+1});
+                }
+            }
+
+            if (y > 0) {
+                const d = estimatedDistanceSimple(field, x, y - 1);
+                if (d < field.get(x, y-1)) {
+                    priorityQueuePush(toVisit, {priority: d, x: x, y: y-1});
+                }
+            }
+        }
+    }
+
+    fastMarchFill(field, toVisit, (x, y) => estimatedDistanceSimple(field, x, y));
 }
 
-function estimateGradient(distanceField, position, gradient) {
+function estimatedDistanceSimple(distanceField, x, y) {
+    // Only fill unfilled squares
+    if (distanceField.get(x, y) !== Infinity)
+        return Infinity;
 
-    const x = position[0] - 0.5;
-    const y = position[1] - 0.5;
+    const dXNeg = (x > 0) ? distanceField.get(x-1, y) : Infinity;
+    const dXPos = (x < distanceField.sizeX - 1) ? distanceField.get(x+1, y) : Infinity;
+    const dYNeg = (y > 0) ? distanceField.get(x, y-1) : Infinity;
+    const dYPos = (y < distanceField.sizeY - 1) ? distanceField.get(x, y+1) : Infinity;
 
-    const uX = x - Math.floor(x);
-    const uY = y - Math.floor(y);
+    const dXMin = Math.min(dXNeg, dXPos);
+    const dYMin = Math.min(dYNeg, dYPos);
 
-    const gridX = Math.floor(x);
-    const gridY = Math.floor(y);
+    const timeHorizontal = 1.0;
 
-    const d00 = safeDistance(distanceField, gridX, gridY);
-    const d10 = safeDistance(distanceField, gridX + 1, gridY);
-    const d01 = safeDistance(distanceField, gridX, gridY + 1);
-    const d11 = safeDistance(distanceField, gridX + 1, gridY + 1);
+    const d = (Math.abs(dXMin - dYMin) <= timeHorizontal) ?
+        ((dXMin + dYMin) + Math.sqrt((dXMin + dYMin)**2 - 2 * (dXMin**2 + dYMin**2 - timeHorizontal**2))) / 2:
+        Math.min(dXMin, dYMin) + timeHorizontal;
 
-    const gradX = (d10 - d00) * (1 - uY) + (d11 - d01) * uY;
-    const gradY = (d01 - d00) * (1 - uX) + (d11 - d10) * uX;
-
-    vec2.set(gradient, gradX, gradY);
+    return d;
 }
 
 function estimateDistance(distanceField, position) {
-
     const x = position[0];
     const y = position[1];
 
-    const uX = x - Math.floor(x);
-    const uY = y - Math.floor(y);
+    const gridX = Math.max(0, Math.min(distanceField.sizeX - 1, Math.floor(x)));
+    const gridY = Math.max(0, Math.min(distanceField.sizeY - 1, Math.floor(y)));
 
-    const gridX = Math.floor(x);
-    const gridY = Math.floor(y);
+    const uX = x - gridX;
+    const uY = y - gridY;
 
-    const d00 = safeDistance(distanceField, gridX, gridY);
-    const d10 = safeDistance(distanceField, gridX + 1, gridY);
-    const d01 = safeDistance(distanceField, gridX, gridY + 1);
-    const d11 = safeDistance(distanceField, gridX + 1, gridY + 1);
+    const d00 = distanceField.get(gridX, gridY);
+    const d10 = distanceField.get(gridX + 1, gridY);
+    const d01 = distanceField.get(gridX, gridY + 1);
+    const d11 = distanceField.get(gridX + 1, gridY + 1);
 
     const d0 = d00 + (d10 - d00) * uX;
     const d1 = d01 + (d11 - d01) * uX;
@@ -2440,16 +2886,6 @@ function estimateDistance(distanceField, position) {
 
 function randomInRange(n) {
     return Math.floor(Math.random() * n);
-}
-
-function coinFlips(total) {
-    let count = 0;
-    while (total > 0) {
-        if (Math.random() < 0.5)
-            ++count;
-        --total;
-    }
-    return count;
 }
 
 // The output level data structure consists of dimensions and
@@ -2468,8 +2904,15 @@ function createLevel() {
         }
     }
 
-    const roomIndexEntrance = randomInRange(numCellsY) * numCellsX;
-    const roomIndexExit = randomInRange(numCellsY) * numCellsX + (numCellsX - 1);
+    const entranceRoomX = randomInRange(2) * (numCellsX - 1);
+    const entranceRoomY = randomInRange(2) * (numCellsY - 1);
+
+    const roomIndexEntrance = entranceRoomY * numCellsX + entranceRoomX;
+
+    const exitRoomX = numCellsX - 1 - entranceRoomX;
+    const exitRoomY = numCellsY - 1 - entranceRoomY;
+
+    const roomIndexExit = exitRoomY * numCellsX + exitRoomX;
 
     // Generate the graph of connections between rooms. The entrance and
     // exit rooms will be dead ends.
@@ -2503,6 +2946,9 @@ function createLevel() {
     let exitConnected = false;
 
     const edges = [];
+
+    // Add edges between as-yet-unconnected sub-graphs
+
     for (const edge of potentialEdges) {
         const edgeConnectsEntrance = (edge[0] == roomIndexEntrance || edge[1] == roomIndexEntrance);
         const edgeConnectsExit = (edge[0] == roomIndexExit || edge[1] == roomIndexExit);
@@ -2514,8 +2960,8 @@ function createLevel() {
         const group0 = roomGroup[edge[0]];
         const group1 = roomGroup[edge[1]];
 
-        if (group0 != group1 || Math.random() < 0.5) {
-            edges.push({edge: edge});
+        if (group0 != group1) {
+            edges.push(edge);
 
             if (edgeConnectsEntrance)
                 entranceConnected = true;
@@ -2525,6 +2971,44 @@ function createLevel() {
             for (let i = 0; i < numRooms; ++i) {
                 if (roomGroup[i] === group1) {
                     roomGroup[i] = group0;
+                }
+            }
+        }
+    }
+
+    // Add half the remaining edges
+
+    filterInPlace(potentialEdges, edge => !hasEdge(edges, edge[0], edge[1]) &&
+        edge[0] != roomIndexEntrance && edge[1] != roomIndexEntrance &&
+        edge[0] != roomIndexExit && edge[1] != roomIndexExit);
+    potentialEdges.length = Math.floor(potentialEdges.length / 2);
+    for (const edge of potentialEdges) {
+        edges.push(edge);
+    }
+
+    // Compute distances for each room from the entrance.
+
+    const roomDistance = Array(numRooms).fill(numRooms);
+    const toVisit = [{priority: 0, roomIndex: roomIndexEntrance}];
+    while (toVisit.length > 0) {
+        const {priority, roomIndex} = priorityQueuePop(toVisit);
+
+        if (roomDistance[roomIndex] <= priority) {
+            continue;
+        }
+
+        roomDistance[roomIndex] = priority;
+
+        const dist = priority + 1;
+
+        for (const edge of edges) {
+            if (edge[0] == roomIndex) {
+                if (roomDistance[edge[1]] > dist) {
+                    priorityQueuePush(toVisit, {priority: dist, roomIndex: edge[1]});
+                }
+            } else if (edge[1] == roomIndex) {
+                if (roomDistance[edge[0]] > dist) {
+                    priorityQueuePush(toVisit, {priority: dist, roomIndex: edge[0]});
                 }
             }
         }
@@ -2620,7 +3104,6 @@ function createLevel() {
 
             const xMin = room0.minX + room0.sizeX;
             const xMax = room1.minX;
-//            const xMid = randomInRange(xMax - (xMin + 1 + corridorWidth)) + xMin + 1;
             const xMid = Math.floor((xMax - (xMin + 1 + corridorWidth)) / 2) + xMin + 1;
 
             const yMinIntersect = Math.max(room0.minY, room1.minY) + 1;
@@ -2683,7 +3166,6 @@ function createLevel() {
 
             const yMin = room0.minY + room0.sizeY;
             const yMax = room1.minY;
-//            const yMid = randomInRange(yMax - (yMin + 1 + corridorWidth)) + yMin + 1;
             const yMid = Math.floor((yMax - (yMin + 1 + corridorWidth)) / 2) + yMin + 1;
 
             for (let y = yMin; y < yMid; ++y) {
@@ -2778,88 +3260,23 @@ function createLevel() {
     // Put an exit position in the exit room
 
     const amuletRoom = rooms[roomIndexExit];
-    const amuletPos = vec2.fromValues(amuletRoom.minX + amuletRoom.sizeX/2, amuletRoom.minY + amuletRoom.sizeY/2);
+    const amuletPos = vec2.fromValues(amuletRoom.minX + amuletRoom.sizeX/2 - 0.5, amuletRoom.minY + amuletRoom.sizeY/2 - 0.5);
+    const positionsUsed = [amuletPos];
 
-    // Place some turrets in the level
+    // Enemies
 
-    const turrets = [];
+    const [spikes, turrets, swarmers] = createEnemies(rooms, roomDistance, level, positionsUsed);
 
-    const numTurrets = 32;
-    for (let i = 0; i < 1000 && turrets.length < numTurrets; ++i) {
-        const roomIndex = randomInRange(rooms.length);
-        if (roomIndex == roomIndexEntrance) {
-            continue;
-        }
+    // Potions
 
-        const room = rooms[roomIndex];
-
-        const x = Math.random() * (room.sizeX - 2 * monsterRadius) + room.minX + monsterRadius;
-        const y = Math.random() * (room.sizeY - 2 * monsterRadius) + room.minY + monsterRadius;
-
-        const position = vec2.fromValues(x, y);
-
-        if (isDiscTouchingLevel(position, monsterRadius * 2, level)) {
-            continue;
-        }
-
-        if (isPositionTooCloseToOtherObjects(turrets, 3 * monsterRadius, position)) {
-            continue;
-        }
-
-        turrets.push({
-            position: position,
-            velocity: vec2.fromValues(0, 0),
-            radius: monsterRadius,
-            dead: false,
-            timeToFire: Math.random() * turretFireDelay,
-        });
-    }
-
-    // Place some melee monsters in the level
-
-    const swarmers = [];
-
-    const numSwarmers = 8;
-    for (let i = 0; i < 1000 && swarmers.length < numSwarmers; ++i) {
-        const roomIndex = randomInRange(rooms.length);
-        if (roomIndex == roomIndexEntrance) {
-            continue;
-        }
-
-        const room = rooms[roomIndex];
-
-        const x = Math.random() * (room.sizeX - 2 * monsterRadius) + room.minX + monsterRadius;
-        const y = Math.random() * (room.sizeY - 2 * monsterRadius) + room.minY + monsterRadius;
-
-        const position = vec2.fromValues(x, y);
-
-        if (isDiscTouchingLevel(position, monsterRadius * 2, level)) {
-            continue;
-        }
-
-        if (isPositionTooCloseToOtherObjects(turrets, 3 * monsterRadius, position)) {
-            continue;
-        }
-
-        if (isPositionTooCloseToOtherObjects(swarmers, 3 * monsterRadius, position)) {
-            continue;
-        }
-
-        swarmers.push({
-            position: position,
-            velocity: vec2.fromValues(0, 0),
-            radius: monsterRadius,
-            stunTimer: 0,
-            dead: false,
-        });
-    }
+    const potions = createPotions(rooms, roomIndexEntrance, roomIndexExit, level, positionsUsed);
 
     // Place loot in the level. Distribute it so rooms that are far from
     // the entrance or the exit have the most? Or so dead ends have the
     // most? Bias toward the rooms that aren't on the path between the
     // entrance and the exit?
 
-    const lootItems = createLootItems(rooms, turrets, swarmers, roomIndexEntrance, amuletPos, level);
+    const lootItems = createLootItems(rooms, positionsUsed, roomIndexEntrance, amuletPos, level);
 
     return {
         grid: level,
@@ -2868,11 +3285,178 @@ function createLevel() {
         startRoom: startRoom,
         amuletRoom: amuletRoom,
         amuletPos: amuletPos,
+        spikes: spikes,
         turrets: turrets,
         swarmers: swarmers,
+        potions: potions,
         lootItems: lootItems,
         numLootItemsTotal: lootItems.length,
     };
+}
+
+function createEnemies(rooms, roomDistance, level, positionsUsed) {
+    const spikes = [];
+    const turrets = [];
+    const swarmers = [];
+
+    for (let roomIndex = 0; roomIndex < roomDistance.length; ++roomIndex) {
+        const d = roomDistance[roomIndex];
+        if (d === 0)
+            continue;
+
+        const room = rooms[roomIndex];
+
+        const maxEnemies = Math.floor(d * Math.max(2, room.sizeX * room.sizeY / 224));
+        let numEnemies = 0;
+        for (let i = 0; i < 1024 && numEnemies < maxEnemies; ++i) {
+            // Pick a kind of monster to create.
+            const monsterKind = Math.random();
+
+            let success = false;
+            if (monsterKind < 0.333 || d < 2) {
+                success = tryCreateSpike(room, spikes, level, positionsUsed);
+            } else if ((monsterKind < 0.667 || d < 3) && d != 3) {
+                success = tryCreateTurret(room, turrets, level, positionsUsed);
+            } else {
+                success = tryCreateSwarmer(room, swarmers, level, positionsUsed);
+            }
+    
+            if (success) {
+                ++numEnemies;
+            }
+        }
+    }
+
+    return [spikes, turrets, swarmers];
+}
+
+function tryCreateSpike(room, spikes, level, positionsUsed) {
+    const x = Math.random() * (room.sizeX - 2 * monsterRadius) + room.minX + monsterRadius;
+    const y = Math.random() * (room.sizeY - 2 * monsterRadius) + room.minY + monsterRadius;
+
+    const position = vec2.fromValues(x, y);
+
+    if (isDiscTouchingLevel(position, monsterRadius * 2, level)) {
+        return false;
+    }
+
+    if (isPositionTooCloseToOtherPositions(positionsUsed, 3 * monsterRadius, position)) {
+        return false;
+    }
+
+    spikes.push({
+        position: position,
+        velocity: vec2.fromValues(0, 0),
+        radius: monsterRadius,
+        onContactCooldown: false,
+        dead: false,
+    });
+
+    positionsUsed.push(position);
+
+    return true;
+}
+
+function tryCreateTurret(room, turrets, level, positionsUsed) {
+    const x = Math.random() * (room.sizeX - 2 * monsterRadius) + room.minX + monsterRadius;
+    const y = Math.random() * (room.sizeY - 2 * monsterRadius) + room.minY + monsterRadius;
+
+    const position = vec2.fromValues(x, y);
+
+    if (isDiscTouchingLevel(position, monsterRadius * 2, level)) {
+        return false;
+    }
+
+    if (isPositionTooCloseToOtherPositions(positionsUsed, 3 * monsterRadius, position)) {
+        return false;
+    }
+
+    turrets.push({
+        position: position,
+        velocity: vec2.fromValues(0, 0),
+        radius: monsterRadius,
+        onContactCooldown: false,
+        dead: false,
+        timeToFire: Math.random() * turretFireDelayStart,
+    });
+
+    positionsUsed.push(position);
+
+    return true;
+}
+
+function tryCreateSwarmer(room, swarmers, level, positionsUsed) {
+    const x = Math.random() * (room.sizeX - 2 * monsterRadius) + room.minX + monsterRadius;
+    const y = Math.random() * (room.sizeY - 2 * monsterRadius) + room.minY + monsterRadius;
+
+    const position = vec2.fromValues(x, y);
+
+    if (isDiscTouchingLevel(position, monsterRadius * 2, level)) {
+        return false;
+    }
+
+    if (isPositionTooCloseToOtherPositions(positionsUsed, 3 * monsterRadius, position)) {
+        return false;
+    }
+
+    swarmers.push({
+        position: position,
+        velocity: vec2.fromValues(0, 0),
+        radius: monsterRadius,
+        heading: Math.random(),
+        headingRate: (Math.random() * 0.15 + 0.15) * (randomInRange(2) * 2 - 1),
+        onContactCooldown: false,
+        dead: false,
+    });
+
+    positionsUsed.push(position);
+
+    return true;
+}
+
+function createPotions(rooms, roomIndexEntrance, roomIndexExit, level, positionsUsed) {
+    const roomIndices = [];
+    for (let i = 0; i < rooms.length; ++i) {
+        if (i != roomIndexEntrance && i != roomIndexExit) {
+            roomIndices.push(i);
+        }
+    }
+
+    shuffleArray(roomIndices);
+    roomIndices.length = Math.ceil(roomIndices.length * 0.75);
+
+    const numHealthPotions = Math.ceil(roomIndices.length / 2);
+
+    const potions = [];
+
+    for (let i = 0; i < roomIndices.length; ++i) {
+        const room = rooms[roomIndices[i]];
+
+        for (let j = 0; j < 1024; ++j) {
+            const x = Math.random() * (room.sizeX - 2 * lootRadius) + room.minX + lootRadius;
+            const y = Math.random() * (room.sizeY - 2 * lootRadius) + room.minY + lootRadius;
+
+            const position = vec2.fromValues(x, y);
+
+            if (isDiscTouchingLevel(position, lootRadius * 2, level)) {
+                continue;
+            }
+
+            if (isPositionTooCloseToOtherPositions(positionsUsed, 3 * lootRadius, position)) {
+                continue;
+            }
+
+            potions.push({
+                position: position,
+                potionType: (i < numHealthPotions) ? potionTypeHealth : potionTypeInvulnerability,
+            });
+
+            positionsUsed.push(position);
+            break;
+        }
+    }
+
+    return potions;
 }
 
 function compressRooms(roomGrid, edges, rooms) {
@@ -3047,7 +3631,7 @@ function tryPlaceCenterObstacleRoom(rooms, level) {
     }
 }
 
-function createLootItems(rooms, turrets, swarmers, roomIndexEntrance, posAmulet, level) {
+function createLootItems(rooms, positionsUsed, roomIndexEntrance, posAmulet, level) {
     const numLoot = 100;
     const loot = [];
 
@@ -3068,15 +3652,7 @@ function createLootItems(rooms, turrets, swarmers, roomIndexEntrance, posAmulet,
             continue;
         }
 
-        if (isPositionTooCloseToOtherObjects(turrets, 2 * lootRadius + monsterRadius, position)) {
-            continue;
-        }
-
-        if (isPositionTooCloseToOtherObjects(swarmers, 2 * lootRadius + monsterRadius, position)) {
-            continue;
-        }
-
-        if (isPositionTooCloseToOtherObjects(loot, 3 * lootRadius, position)) {
+        if (isPositionTooCloseToOtherPositions(positionsUsed, 2 * lootRadius + monsterRadius, position)) {
             continue;
         }
 
@@ -3085,6 +3661,7 @@ function createLootItems(rooms, turrets, swarmers, roomIndexEntrance, posAmulet,
         if (vec2.length(dposAmulet) < 12 * lootRadius)
             continue;
 
+        positionsUsed.push(position);
         loot.push({position: position});
     }
 
@@ -3102,7 +3679,7 @@ function renderLootItems(state, renderer, matScreenFromWorld) {
     if (!state.player.amuletCollected) {
         discs.push({
             position: state.level.amuletPos,
-            color: { r: 0.25, g: 0.25, b: 0.5 },
+            color: { r: 0.4, g: 0.15, b: 0.15 },
             radius: lootRadius,
         });
     }
@@ -3126,7 +3703,7 @@ function renderLootItems(state, renderer, matScreenFromWorld) {
     }
 
     if (!state.player.amuletCollected) {
-        const amuletColor = 0xffff5555;
+        const amuletColor = 0xff5555ff;
         const rectAmulet = glyphRect(12);
         const x = state.level.amuletPos[0];
         const y = state.level.amuletPos[1];
@@ -3141,6 +3718,9 @@ function renderLootItems(state, renderer, matScreenFromWorld) {
 }
 
 function updateLootItems(state) {
+    if (state.player.hitPoints <= 0)
+        return;
+
     const dpos = vec2.create();
 
     filterInPlace(state.level.lootItems, lootItem => {
@@ -3149,8 +3729,59 @@ function updateLootItems(state) {
     });
 }
 
+function renderPotions(state, renderer, matScreenFromWorld) {
+    const color = { r: 0.45, g: 0.45, b: 0.45 };
+    const discs = state.level.potions.map(potion => ({
+        position: potion.position,
+        color: color,
+        radius: lootRadius,
+    }));
+
+    renderer.renderDiscs(matScreenFromWorld, discs);
+
+    const rect = glyphRect(173);
+    const rx = 0.25;
+    const ry = 0.5;
+    const potionHealthGlyphColor = 0xff5555ff;
+    const potionInvulnerabilityGlyphColor = 0xffffff55;
+
+    for (const potion of state.level.potions) {
+        const x = potion.position[0];
+        const y = potion.position[1];
+        renderer.renderGlyphs.add(
+            x - rx, y - ry, x + rx, y + ry,
+            rect.minX, rect.minY, rect.maxX, rect.maxY,
+            (potion.potionType == potionTypeHealth) ? potionHealthGlyphColor : potionInvulnerabilityGlyphColor
+        );
+    }
+
+    renderer.renderGlyphs.flush(matScreenFromWorld);
+}
+
+function updatePotions(state) {
+    if (state.player.hitPoints <= 0)
+        return;
+
+    const dpos = vec2.create();
+
+    filterInPlace(state.level.potions, potion => {
+        vec2.subtract(dpos, potion.position, state.player.position);
+        if (vec2.length(dpos) > playerRadius + lootRadius)
+            return true;
+        if (potion.potionType == potionTypeHealth) {
+            if (state.player.hitPoints >= playerMaxHitPoints)
+                state.player.hitPoints += 1;
+            else
+                state.player.hitPoints = playerMaxHitPoints;
+        } else if (potion.potionType == potionTypeInvulnerability) {
+            state.player.numInvulnerabilityPotions += 1;
+        }
+        return false;
+    });
+}
+
 function hasEdge(edges, roomIndex0, roomIndex1) {
-    return edges.some(e => e.edge[0] === roomIndex0 && e.edge[1] === roomIndex1);
+    return edges.some(edge => edge[0] === roomIndex0 && edge[1] === roomIndex1);
 }
 
 function canHaveStraightVerticalHall(room0, room1) {
@@ -3167,10 +3798,10 @@ function canHaveStraightHorizontalHall(room0, room1) {
     return overlapSize >= corridorWidth;
 }
 
-function isPositionTooCloseToOtherObjects(objects, separationDistance, position) {
+function isPositionTooCloseToOtherPositions(positions, separationDistance, position) {
     const dpos = vec2.create();
-    for (const object of objects) {
-        vec2.subtract(dpos, object.position, position);
+    for (const positionOther of positions) {
+        vec2.subtract(dpos, position, positionOther);
         const d = vec2.length(dpos);
         if (d < separationDistance) {
             return true;
