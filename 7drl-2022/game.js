@@ -92,7 +92,7 @@ function loadResourcesThenRun() {
 function main(fontImage) {
 
     const canvas = document.querySelector("#canvas");
-    const gl = canvas.getContext("webgl", { alpha: false, depth: false });
+    const gl = canvas.getContext("webgl2", { alpha: false, depth: false });
 
     if (gl == null) {
         alert("Unable to initialize WebGL. Your browser or machine may not support it.");
@@ -100,7 +100,7 @@ function main(fontImage) {
     }
 
     const renderer = createRenderer(gl, fontImage);
-    const state = initState(renderer.createFieldRenderer, renderer.createLightingRenderer);
+    const state = initState(renderer.createFieldRenderer, renderer.createLightingRenderer, renderer.createColoredTrianglesRenderer);
 
     canvas.requestPointerLock = canvas.requestPointerLock || canvas.mozRequestPointerLock;
     document.exitPointerLock = document.exitPointerLock || document.mozExitPointerLock;
@@ -114,7 +114,7 @@ function main(fontImage) {
     document.body.addEventListener('keydown', e => {
         if (e.code == 'KeyR') {
             e.preventDefault();
-            resetState(state, renderer.createFieldRenderer, renderer.createLightingRenderer);
+            resetState(state, renderer.createFieldRenderer, renderer.createLightingRenderer, renderer.createColoredTrianglesRenderer);
             if (state.paused) {
                 requestUpdateAndRender();
             }
@@ -617,6 +617,8 @@ function renderSpikesDead(spikes, renderer, matScreenFromWorld) {
 
     renderer.renderDiscs(matScreenFromWorld, discs);
 
+    renderer.renderGlyphs.start(matScreenFromWorld);
+
     const rect = glyphRect(111);
     const rx = 0.25;
     const ry = 0.5;
@@ -635,7 +637,7 @@ function renderSpikesDead(spikes, renderer, matScreenFromWorld) {
         }
     }
 
-    renderer.renderGlyphs.flush(matScreenFromWorld);
+    renderer.renderGlyphs.flush();
 }
 
 function renderSpikesAlive(spikes, renderer, matScreenFromWorld) {
@@ -647,6 +649,8 @@ function renderSpikesAlive(spikes, renderer, matScreenFromWorld) {
     }));
 
     renderer.renderDiscs(matScreenFromWorld, discs);
+
+    renderer.renderGlyphs.start(matScreenFromWorld);
 
     const rect = glyphRect(111);
     const rx = 0.25;
@@ -666,7 +670,7 @@ function renderSpikesAlive(spikes, renderer, matScreenFromWorld) {
         }
     }
 
-    renderer.renderGlyphs.flush(matScreenFromWorld);
+    renderer.renderGlyphs.flush();
 }
 
 function renderTurretsDead(turrets, renderer, matScreenFromWorld) {
@@ -678,6 +682,8 @@ function renderTurretsDead(turrets, renderer, matScreenFromWorld) {
     }));
 
     renderer.renderDiscs(matScreenFromWorld, discs);
+
+    renderer.renderGlyphs.start(matScreenFromWorld);
 
     const rect = glyphRect(119);
     const rx = 0.25;
@@ -697,7 +703,7 @@ function renderTurretsDead(turrets, renderer, matScreenFromWorld) {
         }
     }
 
-    renderer.renderGlyphs.flush(matScreenFromWorld);
+    renderer.renderGlyphs.flush();
 }
 
 function renderTurretsAlive(state, turrets, renderer, matScreenFromWorld) {
@@ -710,6 +716,8 @@ function renderTurretsAlive(state, turrets, renderer, matScreenFromWorld) {
     }));
 
     renderer.renderDiscs(matScreenFromWorld, discs);
+
+    renderer.renderGlyphs.start(matScreenFromWorld);
 
     const rect = glyphRect(119);
     const rx = 0.25;
@@ -729,7 +737,7 @@ function renderTurretsAlive(state, turrets, renderer, matScreenFromWorld) {
         }
     }
 
-    renderer.renderGlyphs.flush(matScreenFromWorld);
+    renderer.renderGlyphs.flush();
 }
 
 function renderSwarmersDead(swarmers, renderer, matScreenFromWorld) {
@@ -741,6 +749,8 @@ function renderSwarmersDead(swarmers, renderer, matScreenFromWorld) {
     }));
 
     renderer.renderDiscs(matScreenFromWorld, discs);
+
+    renderer.renderGlyphs.start(matScreenFromWorld);
 
     const rect = glyphRect(98);
     const rx = 0.25;
@@ -760,7 +770,7 @@ function renderSwarmersDead(swarmers, renderer, matScreenFromWorld) {
         }
     }
 
-    renderer.renderGlyphs.flush(matScreenFromWorld);
+    renderer.renderGlyphs.flush();
 }
 
 function renderSwarmersAlive(swarmers, renderer, matScreenFromWorld) {
@@ -772,6 +782,8 @@ function renderSwarmersAlive(swarmers, renderer, matScreenFromWorld) {
     }));
 
     renderer.renderDiscs(matScreenFromWorld, discs);
+
+    renderer.renderGlyphs.start(matScreenFromWorld);
 
     const rect = glyphRect(98);
     const rx = 0.25;
@@ -791,7 +803,7 @@ function renderSwarmersAlive(swarmers, renderer, matScreenFromWorld) {
         }
     }
 
-    renderer.renderGlyphs.flush(matScreenFromWorld);
+    renderer.renderGlyphs.flush();
 }
 
 function colorLerp(color0, color1, u) {
@@ -837,15 +849,13 @@ function filterInPlace(array, condition) {
 }
 
 function createRenderer(gl, fontImage) {
-    gl.getExtension('OES_standard_derivatives');
-
     const renderer = {
         beginFrame: createBeginFrame(gl),
         createFieldRenderer: createFieldRenderer(gl),
         createLightingRenderer: createLightingRenderer(gl),
         renderDiscs: createDiscRenderer(gl),
         renderGlyphs: createGlyphRenderer(gl, fontImage),
-        renderColoredTriangles: createColoredTriangleRenderer(gl),
+        createColoredTrianglesRenderer: createColoredTrianglesRenderer(gl),
         renderVignette: createVignetteRenderer(gl),
     };
 
@@ -856,7 +866,7 @@ function createRenderer(gl, fontImage) {
     return renderer;
 }
 
-function initState(createFieldRenderer, createLightingRenderer) {
+function initState(createFieldRenderer, createLightingRenderer, createColoredTrianglesRenderer) {
     const state = {
         paused: true,
         showMap: false,
@@ -864,11 +874,11 @@ function initState(createFieldRenderer, createLightingRenderer) {
         mapZoomVelocity: 0,
         mouseSensitivity: 0,
     };
-    resetState(state, createFieldRenderer, createLightingRenderer);
+    resetState(state, createFieldRenderer, createLightingRenderer, createColoredTrianglesRenderer);
     return state;
 }
 
-function resetState(state, createFieldRenderer, createLightingRenderer) {
+function resetState(state, createFieldRenderer, createLightingRenderer, createColoredTrianglesRenderer) {
     const level = createLevel();
 
     const distanceFieldFromExit = createDistanceField(level.grid, level.amuletPos);
@@ -876,6 +886,7 @@ function resetState(state, createFieldRenderer, createLightingRenderer) {
 
     const renderField = createFieldRenderer(level, distanceFieldFromExit);
     const renderLighting = createLightingRenderer(level, distanceFieldFromEntrance, distanceFieldFromExit);
+    const renderColoredTriangles = createColoredTrianglesRenderer(level.vertexData);
 
     const player = {
         position: vec2.create(),
@@ -919,6 +930,7 @@ function resetState(state, createFieldRenderer, createLightingRenderer) {
     state.distanceFieldFromExit = distanceFieldFromExit;
     state.renderField = renderField;
     state.renderLighting = renderLighting;
+    state.renderColoredTriangles = renderColoredTriangles;
     state.tLast = undefined;
     state.player = player;
     state.gameState = gsActive;
@@ -964,14 +976,14 @@ function createBeginFrame(gl) {
 }
 
 function createFieldRenderer(gl) {
-    const vsSource = `
-        attribute vec3 vPosition;
-        attribute vec2 vDistance;
+    const vsSource = `#version 300 es
+        in vec3 vPosition;
+        in vec2 vDistance;
 
         uniform mat4 uMatScreenFromField;
 
-        varying highp float fYBlend;
-        varying highp vec2 fDistance;
+        out highp float fYBlend;
+        out highp vec2 fDistance;
 
         void main() {
             gl_Position = uMatScreenFromField * vec4(vPosition.xy, 0, 1);
@@ -980,31 +992,33 @@ function createFieldRenderer(gl) {
         }
     `;
 
-    const fsSource = `
-        varying highp float fYBlend;
-        varying highp vec2 fDistance;
+    const fsSource = `#version 300 es
+        in highp float fYBlend;
+        in highp vec2 fDistance;
 
         uniform highp float uDistCutoff;
         uniform highp float uScroll;
         uniform sampler2D uContour;
 
+        out lowp vec4 fragColor;
+
         void main() {
             highp float distance = mix(fDistance.x, fDistance.y, fYBlend);
             highp float s = distance - uDistCutoff;
-            highp vec4 contourColor = texture2D(uContour, vec2(s - uScroll, 0));
+            highp vec4 contourColor = texture(uContour, vec2(s - uScroll, 0));
             highp vec4 lavaColor = contourColor * vec4(1, 0.25, 0, 1);
             highp vec4 floorColor = vec4(1, 1, 1, 0);
             highp vec4 color = mix(lavaColor, floorColor, max(0.0, sign(s)));
-            gl_FragColor = color;
+            fragColor = color;
         }
     `;
 
-    const program = initShaderProgram(gl, vsSource, fsSource);
-
-    const vertexAttributeLoc = {
-        position: gl.getAttribLocation(program, 'vPosition'),
-        distance: gl.getAttribLocation(program, 'vDistance'),
+    const attribs = {
+        vPosition: 0,
+        vDistance: 1,
     };
+
+    const program = initShaderProgram(gl, vsSource, fsSource, attribs);
 
     const uniformLoc = {
         uMatScreenFromField: gl.getUniformLocation(program, 'uMatScreenFromField'),
@@ -1081,12 +1095,22 @@ function createFieldRenderer(gl) {
             }
         }
 
+        const vao = gl.createVertexArray();
+        gl.bindVertexArray(vao);
+        gl.enableVertexAttribArray(attribs.vPosition);
+        gl.enableVertexAttribArray(attribs.vDistance);
+
         // Fill the GL buffers with vertex and index data.
         gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+        const stride = floatsPerVertex * 4;
+        gl.vertexAttribPointer(attribs.vPosition, 3, gl.FLOAT, false, stride, 0);
+        gl.vertexAttribPointer(attribs.vDistance, 2, gl.FLOAT, false, stride, 12);
         gl.bufferData(gl.ARRAY_BUFFER, vertexData, gl.STATIC_DRAW);
 
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
         gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indexData, gl.STATIC_DRAW);
+
+        gl.bindVertexArray(null);
 
         // Return a function that will take a matrix and do the actual rendering.
         return (matScreenFromWorld, distCutoff, uScroll) => {
@@ -1094,41 +1118,30 @@ function createFieldRenderer(gl) {
 
             gl.activeTexture(gl.TEXTURE0);
             gl.bindTexture(gl.TEXTURE_2D, contourTexture);
+    
             gl.uniform1i(uniformLoc.uContour, 0);
-
             gl.uniformMatrix4fv(uniformLoc.uMatScreenFromField, false, matScreenFromWorld);
-
             gl.uniform1f(uniformLoc.uDistCutoff, distCutoff);
             gl.uniform1f(uniformLoc.uScroll, uScroll);
 
-            gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
-            gl.enableVertexAttribArray(vertexAttributeLoc.position);
-            gl.enableVertexAttribArray(vertexAttributeLoc.distance);
-            const stride = floatsPerVertex * 4;
-            gl.vertexAttribPointer(vertexAttributeLoc.position, 3, gl.FLOAT, false, stride, 0);
-            gl.vertexAttribPointer(vertexAttributeLoc.distance, 2, gl.FLOAT, false, stride, 12);
-
-            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
-
+            gl.bindVertexArray(vao);
             gl.drawElements(gl.TRIANGLES, numIndices, gl.UNSIGNED_SHORT, 0);
-
-            gl.disableVertexAttribArray(vertexAttributeLoc.distance);
-            gl.disableVertexAttribArray(vertexAttributeLoc.position);
+            gl.bindVertexArray(null);
         };
     };
 }
 
 function createLightingRenderer(gl) {
-    const vsSource = `
-        attribute vec3 vPosition;
-        attribute vec2 vDistanceFromEntrance;
-        attribute vec2 vDistanceFromExit;
+    const vsSource = `#version 300 es
+        in vec3 vPosition;
+        in vec2 vDistanceFromEntrance;
+        in vec2 vDistanceFromExit;
 
         uniform mat4 uMatScreenFromField;
 
-        varying highp float fYBlend;
-        varying highp vec2 fDistanceFromEntrance;
-        varying highp vec2 fDistanceFromExit;
+        out highp float fYBlend;
+        out highp vec2 fDistanceFromEntrance;
+        out highp vec2 fDistanceFromExit;
 
         void main() {
             gl_Position = uMatScreenFromField * vec4(vPosition.xy, 0, 1);
@@ -1138,31 +1151,33 @@ function createLightingRenderer(gl) {
         }
     `;
 
-    const fsSource = `
-        varying highp float fYBlend;
-        varying highp vec2 fDistanceFromEntrance;
-        varying highp vec2 fDistanceFromExit;
+    const fsSource = `#version 300 es
+        in highp float fYBlend;
+        in highp vec2 fDistanceFromEntrance;
+        in highp vec2 fDistanceFromExit;
 
         uniform highp float uDistCenterFromEntrance;
         uniform highp float uDistCenterFromExit;
         uniform highp float uAlphaEntrance;
+
+        out lowp vec4 fragColor;
 
         void main() {
             highp float distanceFromEntrance = mix(fDistanceFromEntrance.x, fDistanceFromEntrance.y, fYBlend);
             highp float distanceFromExit = mix(fDistanceFromExit.x, fDistanceFromExit.y, fYBlend);
             highp float uEntrance = 1.0 - smoothstep(uDistCenterFromEntrance - 8.0, uDistCenterFromEntrance, distanceFromEntrance);
             highp float uExit = clamp((uDistCenterFromExit - distanceFromExit + 6.0) * 0.0625, 0.0, 1.0);
-            gl_FragColor.rgb = vec3(0.22, 0.3, 0.333) * uEntrance * uEntrance * uAlphaEntrance + vec3(1, 0, 0) * uExit;
+            fragColor.rgb = vec3(0.22, 0.3, 0.333) * uEntrance * uEntrance * uAlphaEntrance + vec3(1, 0, 0) * uExit;
         }
     `;
 
-    const program = initShaderProgram(gl, vsSource, fsSource);
-
-    const vertexAttributeLoc = {
-        vPosition: gl.getAttribLocation(program, 'vPosition'),
-        vDistanceFromEntrance: gl.getAttribLocation(program, 'vDistanceFromEntrance'),
-        vDistanceFromExit: gl.getAttribLocation(program, 'vDistanceFromExit'),
+    const attribs = {
+        vPosition: 0,
+        vDistanceFromEntrance: 1,
+        vDistanceFromExit: 2,
     };
+
+    const program = initShaderProgram(gl, vsSource, fsSource, attribs);
 
     const uniformLoc = {
         uMatScreenFromField: gl.getUniformLocation(program, 'uMatScreenFromField'),
@@ -1244,53 +1259,52 @@ function createLightingRenderer(gl) {
             }
         }
 
+        const vao = gl.createVertexArray();
+        gl.bindVertexArray(vao);
+        gl.enableVertexAttribArray(attribs.vPosition);
+        gl.enableVertexAttribArray(attribs.vDistanceFromEntrance);
+        gl.enableVertexAttribArray(attribs.vDistanceFromExit);
+
         // Fill the GL buffers with vertex and index data.
         gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+        const stride = floatsPerVertex * 4;
+        gl.vertexAttribPointer(attribs.vPosition, 3, gl.FLOAT, false, stride, 0);
+        gl.vertexAttribPointer(attribs.vDistanceFromEntrance, 2, gl.FLOAT, false, stride, 12);
+        gl.vertexAttribPointer(attribs.vDistanceFromExit, 2, gl.FLOAT, false, stride, 20);
         gl.bufferData(gl.ARRAY_BUFFER, vertexData, gl.STATIC_DRAW);
 
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
         gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indexData, gl.STATIC_DRAW);
+
+        gl.bindVertexArray(null);
 
         // Return a function that will take a matrix and do the actual rendering.
         return (matScreenFromWorld, distCenterFromEntrance, distCenterFromExit, alphaEntrance) => {
             gl.useProgram(program);
 
             gl.uniformMatrix4fv(uniformLoc.uMatScreenFromField, false, matScreenFromWorld);
-
             gl.uniform1f(uniformLoc.uDistCenterFromEntrance, distCenterFromEntrance);
             gl.uniform1f(uniformLoc.uDistCenterFromExit, distCenterFromExit);
             gl.uniform1f(uniformLoc.uAlphaEntrance, alphaEntrance);
 
-            gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
-            gl.enableVertexAttribArray(vertexAttributeLoc.vPosition);
-            gl.enableVertexAttribArray(vertexAttributeLoc.vDistanceFromEntrance);
-            gl.enableVertexAttribArray(vertexAttributeLoc.vDistanceFromExit);
-            const stride = floatsPerVertex * 4;
-            gl.vertexAttribPointer(vertexAttributeLoc.vPosition, 3, gl.FLOAT, false, stride, 0);
-            gl.vertexAttribPointer(vertexAttributeLoc.vDistanceFromEntrance, 2, gl.FLOAT, false, stride, 12);
-            gl.vertexAttribPointer(vertexAttributeLoc.vDistanceFromExit, 2, gl.FLOAT, false, stride, 20);
-
-            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
-
+            gl.bindVertexArray(vao);
             gl.blendFunc(gl.ONE, gl.ONE);
 
             gl.drawElements(gl.TRIANGLES, numIndices, gl.UNSIGNED_SHORT, 0);
 
             gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-            gl.disableVertexAttribArray(vertexAttributeLoc.vDistanceFromExit);
-            gl.disableVertexAttribArray(vertexAttributeLoc.vDistanceFromEntrance);
-            gl.disableVertexAttribArray(vertexAttributeLoc.vPosition);
+            gl.bindVertexArray(null);
         };
     };
 }
 
 function createDiscRenderer(gl) {
-    const vsSource = `
-        attribute vec2 vPosition;
+    const vsSource = `#version 300 es
+        in vec2 vPosition;
         
         uniform mat4 uMatScreenFromDisc;
 
-        varying highp vec2 fPosition;
+        out highp vec2 fPosition;
 
         void main() {
             fPosition = vPosition;
@@ -1298,59 +1312,62 @@ function createDiscRenderer(gl) {
         }
     `;
 
-    const fsSource = `
-        #extension GL_OES_standard_derivatives : enable
-
-        varying highp vec2 fPosition;
+    const fsSource = `#version 300 es
+        in highp vec2 fPosition;
 
         uniform highp vec3 uColor;
+
+        out lowp vec4 fragColor;
 
         void main() {
             highp float r = length(fPosition);
             highp float aaf = fwidth(r);
             highp float opacity = 1.0 - smoothstep(1.0 - aaf, 1.0, r);
-            gl_FragColor = vec4(uColor, opacity);
+            fragColor = vec4(uColor, opacity);
         }
     `;
 
+    const attribs = {
+        vPosition: 0,
+    };
 
     const matWorldFromDisc = mat4.create();
     const matScreenFromDisc = mat4.create();
 
-    const program = initShaderProgram(gl, vsSource, fsSource);
+    const program = initShaderProgram(gl, vsSource, fsSource, attribs);
 
-    const vertexPositionLoc = gl.getAttribLocation(program, 'vPosition');
     const projectionMatrixLoc = gl.getUniformLocation(program, 'uMatScreenFromDisc');
     const colorLoc = gl.getUniformLocation(program, 'uColor');
     const vertexBuffer = createDiscVertexBuffer(gl);
 
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+
+    gl.enableVertexAttribArray(attribs.vPosition);
     gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
     const stride = 8; // two 4-byte floats
-    gl.vertexAttribPointer(vertexPositionLoc, 2, gl.FLOAT, false, stride, 0);
+    gl.vertexAttribPointer(attribs.vPosition, 2, gl.FLOAT, false, stride, 0);
+
+    gl.bindVertexArray(null);
 
     return (matScreenFromWorld, discs) => {
         gl.useProgram(program);
-
-        gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
-        gl.enableVertexAttribArray(vertexPositionLoc);
-        gl.vertexAttribPointer(vertexPositionLoc, 2, gl.FLOAT, false, 0, 0);
+        gl.bindVertexArray(vao);
 
         for (const disc of discs) {
-            gl.uniform3f(colorLoc, disc.color.r, disc.color.g, disc.color.b);
-
             matWorldFromDisc[0] = disc.radius;
             matWorldFromDisc[5] = disc.radius;
             matWorldFromDisc[12] = disc.position[0];
             matWorldFromDisc[13] = disc.position[1];
-
             mat4.multiply(matScreenFromDisc, matScreenFromWorld, matWorldFromDisc);
 
+            gl.uniform3f(colorLoc, disc.color.r, disc.color.g, disc.color.b);
             gl.uniformMatrix4fv(projectionMatrixLoc, false, matScreenFromDisc);
 
             gl.drawArrays(gl.TRIANGLES, 0, 6);
         }
-    
-        gl.disableVertexAttribArray(vertexPositionLoc);
+
+        gl.bindVertexArray(null);
     };
 }
 
@@ -1424,14 +1441,14 @@ function createVertexInfo(costRateField, distanceField) {
 }
 
 function createGlyphRenderer(gl, fontImage) {
-    const vsSource = `
-        attribute vec4 vPositionTexcoord;
-        attribute vec4 vColor;
+    const vsSource = `#version 300 es
+        in vec4 vPositionTexcoord;
+        in vec4 vColor;
 
         uniform mat4 uMatScreenFromWorld;
 
-        varying highp vec2 fTexcoord;
-        varying highp vec4 fColor;
+        out highp vec2 fTexcoord;
+        out highp vec4 fColor;
 
         void main() {
             fTexcoord = vPositionTexcoord.zw;
@@ -1440,41 +1457,60 @@ function createGlyphRenderer(gl, fontImage) {
         }
     `;
 
-    const fsSource = `
-        varying highp vec2 fTexcoord;
-        varying highp vec4 fColor;
+    const fsSource = `#version 300 es
+        in highp vec2 fTexcoord;
+        in highp vec4 fColor;
 
         uniform sampler2D uOpacity;
 
+        out lowp vec4 fragColor;
+
         void main() {
-            gl_FragColor = fColor * vec4(1, 1, 1, texture2D(uOpacity, fTexcoord));
+            fragColor = fColor * vec4(1, 1, 1, texture(uOpacity, fTexcoord));
         }
     `;
 
+    const attribs = {
+        vPositionTexcoord: 0,
+        vColor: 1,
+    };
+
     const fontTexture = createTextureFromImage(gl, fontImage);
 
-    const program = initShaderProgram(gl, vsSource, fsSource);
-
-    const vPositionTexcoordLoc = gl.getAttribLocation(program, 'vPositionTexcoord');
-    const vColorLoc = gl.getAttribLocation(program, 'vColor');
+    const program = initShaderProgram(gl, vsSource, fsSource, attribs);
 
     const uProjectionMatrixLoc = gl.getUniformLocation(program, 'uMatScreenFromWorld');
     const uOpacityLoc = gl.getUniformLocation(program, 'uOpacity');
 
-    const maxQuads = 4096;
+    const maxQuads = 64;
     const numVertices = 4 * maxQuads;
     const bytesPerVertex = 4 * Float32Array.BYTES_PER_ELEMENT + Uint32Array.BYTES_PER_ELEMENT;
-    const wordsPerQuad = bytesPerVertex;
-
-    const indexBuffer = createGlyphIndexBuffer(gl, maxQuads);
-
-    const vertexBuffer = gl.createBuffer();
+    const wordsPerQuad = bytesPerVertex; // divide by four bytes per word, but also multiply by four vertices per quad
 
     const vertexData = new ArrayBuffer(numVertices * bytesPerVertex);
     const vertexDataAsFloat32 = new Float32Array(vertexData);
     const vertexDataAsUint32 = new Uint32Array(vertexData);
 
+    const vertexBuffer = gl.createBuffer();
+
     let numQuads = 0;
+
+    const matScreenFromWorldCached = mat4.create();
+
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+    gl.enableVertexAttribArray(attribs.vPositionTexcoord);
+    gl.enableVertexAttribArray(attribs.vColor);
+    gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+    gl.vertexAttribPointer(attribs.vPositionTexcoord, 4, gl.FLOAT, false, bytesPerVertex, 0);
+    gl.vertexAttribPointer(attribs.vColor, 4, gl.UNSIGNED_BYTE, true, bytesPerVertex, 16);
+    gl.bufferData(gl.ARRAY_BUFFER, vertexData, gl.DYNAMIC_DRAW);
+    const indexBuffer = createGlyphIndexBuffer(gl, maxQuads);
+    gl.bindVertexArray(null);
+
+    function setMatScreenFromWorld(matScreenFromWorld) {
+        mat4.copy(matScreenFromWorldCached, matScreenFromWorld);
+    }
 
     function addQuad(x0, y0, x1, y1, s0, t0, s1, t1, color) {
         if (numQuads >= maxQuads) {
@@ -1510,36 +1546,33 @@ function createGlyphRenderer(gl, fontImage) {
         ++numQuads;
     }
 
-    function flushQuads(matScreenFromWorld) {
+    function flushQuads() {
         if (numQuads <= 0) {
             return;
         }
 
         gl.useProgram(program);
 
+        gl.bindVertexArray(vao);
+
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, fontTexture);
         gl.uniform1i(uOpacityLoc, 0);
 
-        gl.uniformMatrix4fv(uProjectionMatrixLoc, false, matScreenFromWorld);
+        gl.uniformMatrix4fv(uProjectionMatrixLoc, false, matScreenFromWorldCached);
 
         gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, vertexData, gl.DYNAMIC_DRAW);
-        gl.enableVertexAttribArray(vPositionTexcoordLoc);
-        gl.enableVertexAttribArray(vColorLoc);
-        gl.vertexAttribPointer(vPositionTexcoordLoc, 4, gl.FLOAT, false, bytesPerVertex, 0);
-        gl.vertexAttribPointer(vColorLoc, 4, gl.UNSIGNED_BYTE, true, bytesPerVertex, 16);
-
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+        gl.bufferSubData(gl.ARRAY_BUFFER, 0, vertexDataAsFloat32, 0);
 
         gl.drawElements(gl.TRIANGLES, 6 * numQuads, gl.UNSIGNED_SHORT, 0);
 
-        gl.disableVertexAttribArray(vColorLoc);
-        gl.disableVertexAttribArray(vPositionTexcoordLoc);
+        gl.bindVertexArray(null);
+
         numQuads = 0;
     }
 
     return {
+        start: setMatScreenFromWorld,
         add: addQuad,
         flush: flushQuads,
     };
@@ -1598,14 +1631,14 @@ function updateAndRender(now, renderer, state) {
     }
 }
 
-function createColoredTriangleRenderer(gl) {
-    const vsSource = `
-        attribute vec2 vPosition;
-        attribute vec4 vColor;
+function createColoredTrianglesRenderer(gl) {
+    const vsSource = `#version 300 es
+        in vec2 vPosition;
+        in vec4 vColor;
 
         uniform mat4 uProjectionMatrix;
 
-        varying highp vec4 fColor;
+        out highp vec4 fColor;
 
         void main() {
             fColor = vColor;
@@ -1613,54 +1646,60 @@ function createColoredTriangleRenderer(gl) {
         }
     `;
 
-    const fsSource = `
-        varying highp vec4 fColor;
+    const fsSource = `#version 300 es
+        in highp vec4 fColor;
+        out lowp vec4 fragColor;
         void main() {
-            gl_FragColor = fColor;
+            fragColor = fColor;
         }
     `;
 
-    const program = initShaderProgram(gl, vsSource, fsSource);
+    const attribs = {
+        vPosition: 0,
+        vColor: 1,
+    };
 
-    const vertexPositionLoc = gl.getAttribLocation(program, 'vPosition');
-    const vertexColorLoc = gl.getAttribLocation(program, 'vColor');
+    const program = initShaderProgram(gl, vsSource, fsSource, attribs);
+
     const projectionMatrixLoc = gl.getUniformLocation(program, 'uProjectionMatrix');
 
     const vertexBuffer = gl.createBuffer();
 
     const bytesPerVertex = 12; // two 4-byte floats and one 32-bit color
-    gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
-    gl.vertexAttribPointer(vertexPositionLoc, 2, gl.FLOAT, false, bytesPerVertex, 0);
-    gl.vertexAttribPointer(vertexColorLoc, 4, gl.UNSIGNED_BYTE, true, bytesPerVertex, 8);
 
-    return (matScreenFromWorld, vertexData) => {
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+    gl.enableVertexAttribArray(attribs.vPosition);
+    gl.enableVertexAttribArray(attribs.vColor);
+    gl.bindVertexArray(null);
+
+    return vertexData => {
         const numVerts = Math.floor(vertexData.byteLength / bytesPerVertex);
 
-        gl.useProgram(program);
-
-        gl.uniformMatrix4fv(projectionMatrixLoc, false, matScreenFromWorld);
-
+        gl.bindVertexArray(vao);
         gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, vertexData, gl.DYNAMIC_DRAW);
-        gl.enableVertexAttribArray(vertexPositionLoc);
-        gl.enableVertexAttribArray(vertexColorLoc);
-        gl.vertexAttribPointer(vertexPositionLoc, 2, gl.FLOAT, false, bytesPerVertex, 0);
-        gl.vertexAttribPointer(vertexColorLoc, 4, gl.UNSIGNED_BYTE, true, bytesPerVertex, 8);
-    
-        gl.drawArrays(gl.TRIANGLES, 0, numVerts);
+        gl.vertexAttribPointer(attribs.vPosition, 2, gl.FLOAT, false, bytesPerVertex, 0);
+        gl.vertexAttribPointer(attribs.vColor, 4, gl.UNSIGNED_BYTE, true, bytesPerVertex, 8);
+        gl.bufferData(gl.ARRAY_BUFFER, vertexData, gl.STATIC_DRAW);
+        gl.bindVertexArray(null);
 
-        gl.disableVertexAttribArray(vertexColorLoc);
-        gl.disableVertexAttribArray(vertexPositionLoc);
+        return matScreenFromWorld => {
+            gl.useProgram(program);
+            gl.uniformMatrix4fv(projectionMatrixLoc, false, matScreenFromWorld);
+            gl.bindVertexArray(vao);
+            gl.drawArrays(gl.TRIANGLES, 0, numVerts);
+            gl.bindVertexArray(null);
+        };
     };
 }
 
 function createVignetteRenderer(gl) {
-    const vsSource = `
-        attribute vec2 vPositionScreen;
+    const vsSource = `#version 300 es
+        in vec2 vPositionScreen;
 
         uniform mat4 uMatDiscFromScreen;
 
-        varying highp vec2 fPositionDisc;
+        out highp vec2 fPositionDisc;
 
         void main() {
             highp vec4 posScreen = vec4(vPositionScreen.xy, 0, 1);
@@ -1669,23 +1708,28 @@ function createVignetteRenderer(gl) {
         }
     `;
 
-    const fsSource = `
-        varying highp vec2 fPositionDisc;
+    const fsSource = `#version 300 es
+        in highp vec2 fPositionDisc;
 
         uniform highp vec4 uColorInner;
         uniform highp vec4 uColorOuter;
         uniform highp float uRadiusInner;
 
+        out lowp vec4 fragColor;
+
         void main() {
             highp float r = length(fPositionDisc);
             highp float u = smoothstep(uRadiusInner, 1.0, r);
-            gl_FragColor = mix(uColorInner, uColorOuter, u);
+            fragColor = mix(uColorInner, uColorOuter, u);
         }
     `;
 
-    const program = initShaderProgram(gl, vsSource, fsSource);
+    const attribs = {
+        vPositionScreen: 0,
+    };
 
-    const vLocPositionScreen = gl.getAttribLocation(program, 'vPositionScreen');
+    const program = initShaderProgram(gl, vsSource, fsSource, attribs);
+
     const uLocMatDiscFromScreen = gl.getUniformLocation(program, 'uMatDiscFromScreen');
     const uLocColorInner = gl.getUniformLocation(program, 'uColorInner');
     const uLocColorOuter = gl.getUniformLocation(program, 'uColorOuter');
@@ -1709,24 +1753,26 @@ function createVignetteRenderer(gl) {
     }
 
     const vertexBuffer = gl.createBuffer();
+
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+    gl.enableVertexAttribArray(attribs.vLocPositionScreen);
     gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+    gl.vertexAttribPointer(attribs.vLocPositionScreen, 2, gl.FLOAT, false, 0, 0);
     gl.bufferData(gl.ARRAY_BUFFER, vertexData, gl.STATIC_DRAW);
+    gl.bindVertexArray(null);
 
     return (matDiscFromScreen, radiusInner, colorInner, colorOuter) => {
         gl.useProgram(program);
-
-        gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
-        gl.enableVertexAttribArray(vLocPositionScreen);
-        gl.vertexAttribPointer(vLocPositionScreen, 2, gl.FLOAT, false, 0, 0);
 
         gl.uniformMatrix4fv(uLocMatDiscFromScreen, false, matDiscFromScreen);
         gl.uniform1f(uLocRadiusInner, radiusInner);
         gl.uniform4fv(uLocColorInner, colorInner);
         gl.uniform4fv(uLocColorOuter, colorOuter);
 
+        gl.bindVertexArray(vao);
         gl.drawArrays(gl.TRIANGLES, 0, 6);
-    
-        gl.disableVertexAttribArray(vLocPositionScreen);
+        gl.bindVertexArray(null);
     };
 }
 
@@ -1865,14 +1911,12 @@ function updateLava(state, dt) {
         return;
     }
 
-    if (state.gameState == gsWon) {
-        const entranceDistFromExit = estimateDistance(state.distanceFieldFromExit, state.level.playerStartPos);
-        state.lava.levelTarget = entranceDistFromExit - 4;
-    } else {
-        const playerDistFromExit = estimateDistance(state.distanceFieldFromExit, state.player.position);
-        const levelTarget = (playerDistFromExit < 6) ? 0 : playerDistFromExit + 4;
-        state.lava.levelTarget = Math.max(state.lava.levelTarget, levelTarget);
-    }
+    const entranceDistFromExit = estimateDistance(state.distanceFieldFromExit, state.level.playerStartPos);
+    const playerDistFromExit = estimateDistance(state.distanceFieldFromExit, state.player.position);
+
+    const maxLevelTarget = entranceDistFromExit - 4;
+
+    state.lava.levelTarget = Math.min(maxLevelTarget, Math.max(state.lava.levelTarget, playerDistFromExit + 10));
 
     const levelError = state.lava.levelTarget - state.lava.levelBase;
     const levelVelocityError = -state.lava.levelBaseVelocity;
@@ -2261,7 +2305,7 @@ function renderScene(renderer, state) {
     const matScreenFromWorld = mat4.create();
     setupViewMatrix(state, screenSize, matScreenFromWorld);
 
-    renderer.renderColoredTriangles(matScreenFromWorld, state.level.vertexData);
+    state.renderColoredTriangles(matScreenFromWorld);
 
     renderSpikesDead(state.level.spikes, renderer, matScreenFromWorld);
     renderTurretsDead(state.level.turrets, renderer, matScreenFromWorld);
@@ -2296,8 +2340,9 @@ function renderScene(renderer, state) {
 
         const glyphColor = (state.player.hitPoints > 0) ? 0xff00ffff : 0xff0020ff;
 
+        renderer.renderGlyphs.start(matScreenFromWorld);
         renderer.renderGlyphs.add(x - rx, y + yOffset - ry, x + rx, y + yOffset + ry, 1*tx, ty, 2*tx, 0, glyphColor);
-        renderer.renderGlyphs.flush(matScreenFromWorld);
+        renderer.renderGlyphs.flush();
     }
 
     const distFromEntrance = Math.max(30, estimateDistance(state.distanceFieldFromEntrance, state.camera.position));
@@ -2428,27 +2473,6 @@ function renderDamageVignette(invulnerabilityTimer, hitPoints, damageDisplayTime
 }
 
 function renderHealthMeter(state, renderer, screenSize) {
-    const rect = glyphRect(3);
-    const glyphColorHeartFilled = 0xff0000aa;
-    const glyphColorHeartEmpty = 0xff202020;
-    const glyphColorHeartOvercharge = 0xff5555ff;
-
-    for (let i = 0; i < playerMaxHitPoints; ++i) {
-        renderer.renderGlyphs.add(
-            i, 0, i + 1, 1,
-            rect.minX, rect.minY, rect.maxX, rect.maxY,
-            i < state.player.hitPoints ? glyphColorHeartFilled : glyphColorHeartEmpty
-        );
-    }
-
-    for (let i = playerMaxHitPoints; i < state.player.hitPoints; ++i) {
-        renderer.renderGlyphs.add(
-            i, 0, i + 1, 1,
-            rect.minX, rect.minY, rect.maxX, rect.maxY,
-            glyphColorHeartOvercharge
-        );
-    }
-
     const minCharsX = 40;
     const minCharsY = 20;
     const scaleLargestX = Math.max(1, Math.floor(screenSize[0] / (8 * minCharsX)));
@@ -2470,26 +2494,38 @@ function renderHealthMeter(state, renderer, screenSize) {
         offsetY + numCharsY,
         1,
         -1);
-    renderer.renderGlyphs.flush(matScreenFromTextArea);
+    renderer.renderGlyphs.start(matScreenFromTextArea);
+
+    const rect = glyphRect(3);
+    const glyphColorHeartFilled = 0xff0000aa;
+    const glyphColorHeartEmpty = 0xff202020;
+    const glyphColorHeartOvercharge = 0xff5555ff;
+
+    for (let i = 0; i < playerMaxHitPoints; ++i) {
+        renderer.renderGlyphs.add(
+            i, 0, i + 1, 1,
+            rect.minX, rect.minY, rect.maxX, rect.maxY,
+            i < state.player.hitPoints ? glyphColorHeartFilled : glyphColorHeartEmpty
+        );
+    }
+
+    for (let i = playerMaxHitPoints; i < state.player.hitPoints; ++i) {
+        renderer.renderGlyphs.add(
+            i, 0, i + 1, 1,
+            rect.minX, rect.minY, rect.maxX, rect.maxY,
+            glyphColorHeartOvercharge
+        );
+    }
+
+    renderer.renderGlyphs.flush();
 }
 
 function renderLootCounter(state, renderer, screenSize) {
-    const color = 0xff55ffff;
-
     const numLootItemsTotal = state.level.numLootItemsTotal;
     const numLootItemsCollected = numLootItemsTotal - state.level.lootItems.length;
 
     const strMsg = numLootItemsCollected + '/' + numLootItemsTotal + '\x0f';
     const cCh = strMsg.length;
-
-    for (let i = 0; i < cCh; ++i) {
-        const rect = glyphRect(strMsg.charCodeAt(i));
-        renderer.renderGlyphs.add(
-            i, 0, i + 1, 1,
-            rect.minX, rect.minY, rect.maxX, rect.maxY,
-            color
-        );
-    }
 
     const minCharsX = 40;
     const minCharsY = 20;
@@ -2512,35 +2548,28 @@ function renderLootCounter(state, renderer, screenSize) {
         offsetY + numCharsY,
         1,
         -1);
-    renderer.renderGlyphs.flush(matScreenFromTextArea);
-}
+    renderer.renderGlyphs.start(matScreenFromTextArea);
 
-function renderBulletAndPotionCounter(state, renderer, screenSize) {
-    const color = 0xffffff55;
-    const colorDim = 0xff202000;
-
-    const numBullets = Math.floor(state.player.numBullets);
-
-    for (let i = 0; i < bulletMaxCapacity; ++i) {
-        const rect = glyphRect(157);
-        renderer.renderGlyphs.add(
-            i, 0, i + 1, 1,
-            rect.minX, rect.minY, rect.maxX, rect.maxY,
-            (i < numBullets) ? color : colorDim
-        );
-    }
-
-    const strMsg = '     ' + state.player.numInvulnerabilityPotions + '\xad';
-    const cCh = strMsg.length;
+    const color = 0xff55ffff;
 
     for (let i = 0; i < cCh; ++i) {
         const rect = glyphRect(strMsg.charCodeAt(i));
         renderer.renderGlyphs.add(
-            i + bulletMaxCapacity, 0, i + bulletMaxCapacity + 1, 1,
+            i, 0, i + 1, 1,
             rect.minX, rect.minY, rect.maxX, rect.maxY,
             color
         );
     }
+
+    renderer.renderGlyphs.flush();
+}
+
+function renderBulletAndPotionCounter(state, renderer, screenSize) {
+    const strMsg = '     ' + state.player.numInvulnerabilityPotions + '\xad';
+    const cCh = strMsg.length;
+
+    const color = 0xffffff55;
+    const colorDim = 0xff202000;
 
     const minCharsX = 40;
     const minCharsY = 20;
@@ -2563,17 +2592,63 @@ function renderBulletAndPotionCounter(state, renderer, screenSize) {
         offsetY + numCharsY,
         1,
         -1);
-    renderer.renderGlyphs.flush(matScreenFromTextArea);
+    renderer.renderGlyphs.start(matScreenFromTextArea);
+
+    const numBullets = Math.floor(state.player.numBullets);
+
+    for (let i = 0; i < bulletMaxCapacity; ++i) {
+        const rect = glyphRect(157);
+        renderer.renderGlyphs.add(
+            i, 0, i + 1, 1,
+            rect.minX, rect.minY, rect.maxX, rect.maxY,
+            (i < numBullets) ? color : colorDim
+        );
+    }
+
+    for (let i = 0; i < cCh; ++i) {
+        const rect = glyphRect(strMsg.charCodeAt(i));
+        renderer.renderGlyphs.add(
+            i + bulletMaxCapacity, 0, i + bulletMaxCapacity + 1, 1,
+            rect.minX, rect.minY, rect.maxX, rect.maxY,
+            color
+        );
+    }
+
+    renderer.renderGlyphs.flush();
 }
 
 function renderTextLines(renderer, screenSize, lines) {
-    const colorText = 0xffeeeeee;
-    const colorBackground = 0xe0555555;
-
     let maxLineLength = 0;
     for (const line of lines) {
         maxLineLength = Math.max(maxLineLength, line.length);
     }
+
+    const minCharsX = 40;
+    const minCharsY = 20;
+    const scaleLargestX = Math.max(1, Math.floor(screenSize[0] / (8 * minCharsX)));
+    const scaleLargestY = Math.max(1, Math.floor(screenSize[1] / (16 * minCharsY)));
+    const scaleFactor = Math.min(scaleLargestX, scaleLargestY);
+    const pixelsPerCharX = 8 * scaleFactor;
+    const pixelsPerCharY = 16 * scaleFactor;
+    const linesPixelSizeX = maxLineLength * pixelsPerCharX;
+    const numCharsX = screenSize[0] / pixelsPerCharX;
+    const numCharsY = screenSize[1] / pixelsPerCharY;
+    const offsetX = Math.floor((screenSize[0] - linesPixelSizeX) / -2) / pixelsPerCharX;
+    const offsetY = (lines.length + 2) - numCharsY;
+
+    const matScreenFromTextArea = mat4.create();
+    mat4.ortho(
+        matScreenFromTextArea,
+        offsetX,
+        offsetX + numCharsX,
+        offsetY,
+        offsetY + numCharsY,
+        1,
+        -1);
+    renderer.renderGlyphs.start(matScreenFromTextArea);
+
+    const colorText = 0xffeeeeee;
+    const colorBackground = 0xe0555555;
 
     {
         // Draw a stretched box to make a darkened background for the text.
@@ -2603,29 +2678,7 @@ function renderTextLines(renderer, screenSize, lines) {
         }
     }
 
-    const minCharsX = 40;
-    const minCharsY = 20;
-    const scaleLargestX = Math.max(1, Math.floor(screenSize[0] / (8 * minCharsX)));
-    const scaleLargestY = Math.max(1, Math.floor(screenSize[1] / (16 * minCharsY)));
-    const scaleFactor = Math.min(scaleLargestX, scaleLargestY);
-    const pixelsPerCharX = 8 * scaleFactor;
-    const pixelsPerCharY = 16 * scaleFactor;
-    const linesPixelSizeX = maxLineLength * pixelsPerCharX;
-    const numCharsX = screenSize[0] / pixelsPerCharX;
-    const numCharsY = screenSize[1] / pixelsPerCharY;
-    const offsetX = Math.floor((screenSize[0] - linesPixelSizeX) / -2) / pixelsPerCharX;
-    const offsetY = (lines.length + 2) - numCharsY;
-
-    const matScreenFromTextArea = mat4.create();
-    mat4.ortho(
-        matScreenFromTextArea,
-        offsetX,
-        offsetX + numCharsX,
-        offsetY,
-        offsetY + numCharsY,
-        1,
-        -1);
-    renderer.renderGlyphs.flush(matScreenFromTextArea);
+    renderer.renderGlyphs.flush();
 }
 
 function resizeCanvasToDisplaySize(canvas) {
@@ -2636,13 +2689,18 @@ function resizeCanvasToDisplaySize(canvas) {
     }
 }
 
-function initShaderProgram(gl, vsSource, fsSource) {
+function initShaderProgram(gl, vsSource, fsSource, attribs) {
     const vertexShader = loadShader(gl, gl.VERTEX_SHADER, vsSource);
     const fragmentShader = loadShader(gl, gl.FRAGMENT_SHADER, fsSource);
 
     const program = gl.createProgram();
     gl.attachShader(program, vertexShader);
     gl.attachShader(program, fragmentShader);
+
+    for (const attrib in attribs) {
+        gl.bindAttribLocation(program, attribs[attrib], attrib);
+    }
+
     gl.linkProgram(program);
 
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
@@ -2917,8 +2975,7 @@ function randomInRange(n) {
 // position is also returned.
 
 function createLevel() {
-    // Create some rooms. First we're going to designate an entrance room, an
-    // exit room, and connectivity between rooms.
+    // Create some rooms in a grid.
 
     const roomGrid = [];
     for (let roomY = 0; roomY < numCellsY; ++roomY) {
@@ -2928,18 +2985,7 @@ function createLevel() {
         }
     }
 
-    const entranceRoomX = randomInRange(2) * (numCellsX - 1);
-    const entranceRoomY = randomInRange(2) * (numCellsY - 1);
-
-    const roomIndexEntrance = entranceRoomY * numCellsX + entranceRoomX;
-
-    const exitRoomX = numCellsX - 1 - entranceRoomX;
-    const exitRoomY = numCellsY - 1 - entranceRoomY;
-
-    const roomIndexExit = exitRoomY * numCellsX + exitRoomX;
-
-    // Generate the graph of connections between rooms. The entrance and
-    // exit rooms will be dead ends.
+    // Build a minimum spanning tree of the rooms.
 
     const potentialEdges = [];
     for (let roomY = 0; roomY < numCellsY; ++roomY) {
@@ -2966,82 +3012,125 @@ function createLevel() {
         roomGroup.push(i);
     }
 
-    let entranceConnected = false;
-    let exitConnected = false;
-
     const edges = [];
 
     // Add edges between as-yet-unconnected sub-graphs
 
     for (const edge of potentialEdges) {
-        const edgeConnectsEntrance = (edge[0] == roomIndexEntrance || edge[1] == roomIndexEntrance);
-        const edgeConnectsExit = (edge[0] == roomIndexExit || edge[1] == roomIndexExit);
-        if (edgeConnectsEntrance && entranceConnected)
-            continue;
-        if (edgeConnectsExit && exitConnected)
-            continue;
-
         const group0 = roomGroup[edge[0]];
         const group1 = roomGroup[edge[1]];
 
-        if (group0 != group1) {
-            edges.push(edge);
+        if (group0 == group1)
+            continue;
 
-            if (edgeConnectsEntrance)
-                entranceConnected = true;
-            if (edgeConnectsExit)
-                exitConnected = true;
+        edges.push(edge);
+        for (let i = 0; i < numRooms; ++i) {
+            if (roomGroup[i] === group1) {
+                roomGroup[i] = group0;
+            }
+        }
+    }
 
-            for (let i = 0; i < numRooms; ++i) {
-                if (roomGroup[i] === group1) {
-                    roomGroup[i] = group0;
+    // Calculate all-pairs shortest path distances
+
+    const dist = [];
+    for (let i = 0; i < numRooms; ++i) {
+        dist[i] = [];
+        for (let j = 0; j < numRooms; ++j) {
+            dist[i][j] = (i == j) ? 0 : Infinity;
+        }
+    }
+
+    for (const edge of edges) {
+        dist[edge[0]][edge[1]] = 1;
+        dist[edge[1]][edge[0]] = 1;
+    }
+
+    for (let k = 0; k < numRooms; ++k) {
+        for (let i = 0; i < numRooms; ++i) {
+            for (let j = 0; j < numRooms; ++j) {
+                if (dist[i][j] > dist[i][k] + dist[k][j]) {
+                    dist[i][j] = dist[i][k] + dist[k][j];
                 }
             }
         }
     }
 
-    // Add half the remaining edges
+    // Pick a starting room and an ending room that are maximally distant
 
-    filterInPlace(potentialEdges, edge => !hasEdge(edges, edge[0], edge[1]) &&
-        edge[0] != roomIndexEntrance && edge[1] != roomIndexEntrance &&
-        edge[0] != roomIndexExit && edge[1] != roomIndexExit);
-    potentialEdges.length = Math.floor(potentialEdges.length / 2);
-    for (const edge of potentialEdges) {
-        edges.push(edge);
+    let maxDistPairs = [];
+    let maxDist = 0;
+
+    for (let i = 0; i < numRooms; ++i) {
+        for (let j = i + 1; j < numRooms; ++j) {
+            if (dist[i][j] > maxDist) {
+                maxDist = dist[i][j];
+                maxDistPairs = [[i, j]];
+            } else if (dist[i][j] == maxDist) {
+                maxDistPairs.push([i, j]);
+            }
+        }
     }
+
+    shuffleArray(maxDistPairs);
+    shuffleArray(maxDistPairs[0]);
+
+    const roomIndexEntrance = maxDistPairs[0][0];
+    const roomIndexExit = maxDistPairs[0][1];
 
     // Compute distances for each room from the entrance.
 
-    const roomDistance = Array(numRooms).fill(numRooms);
-    const toVisit = [{priority: 0, roomIndex: roomIndexEntrance}];
-    while (toVisit.length > 0) {
-        const {priority, roomIndex} = priorityQueuePop(toVisit);
+    const roomDistanceFromEntrance = [];
+    const roomDistanceFromExit = [];
+    computeDistances(roomDistanceFromEntrance, numRooms, edges, roomIndexEntrance);
+    computeDistances(roomDistanceFromExit, numRooms, edges, roomIndexExit);
 
-        if (roomDistance[roomIndex] <= priority) {
+    // Find dead-end rooms and add edges to them if they don't change the length
+    // of the path from the entrance to the exit.
+
+    filterInPlace(potentialEdges, edge => !hasEdge(edges, edge[0], edge[1]));
+
+    const roomIndexShuffled = [];
+    for (let i = 0; i < numRooms; ++i) {
+        roomIndexShuffled.push(i);
+    }
+    shuffleArray(roomIndexShuffled);
+
+    const minDistEntranceToExit = roomDistanceFromEntrance[roomIndexExit];
+
+    for (const roomIndex of roomIndexShuffled) {
+        const numEdgesCur = edges.reduce((count, edge) => count + (edge[0] == roomIndex || edge[1] == roomIndex) ? 1 : 0, 0);
+        if (numEdgesCur != 1) {
             continue;
         }
 
-        roomDistance[roomIndex] = priority;
+        const edgesToAdd = potentialEdges.filter(edge => edge[0] == roomIndex || edge[1] == roomIndex);
 
-        const dist = priority + 1;
-
-        for (const edge of edges) {
-            if (edge[0] == roomIndex) {
-                if (roomDistance[edge[1]] > dist) {
-                    priorityQueuePush(toVisit, {priority: dist, roomIndex: edge[1]});
-                }
-            } else if (edge[1] == roomIndex) {
-                if (roomDistance[edge[0]] > dist) {
-                    priorityQueuePush(toVisit, {priority: dist, roomIndex: edge[0]});
-                }
+        filterInPlace(edgesToAdd, edge => {
+            const e0 = edge[0];
+            const e1 = edge[1];
+            if (hasEdge(edges, e0, e1)) {
+                return false;
             }
+            const newDistEntranceToExit = 1 + Math.min(
+                roomDistanceFromEntrance[e0] + roomDistanceFromExit[e1],
+                roomDistanceFromEntrance[e1] + roomDistanceFromExit[e0]
+            );
+            return newDistEntranceToExit >= minDistEntranceToExit;
+        });
+
+        if (edgesToAdd.length > 0) {
+            edges.push(edgesToAdd[randomInRange(edgesToAdd.length)]);
+
+            computeDistances(roomDistanceFromEntrance, numRooms, edges, roomIndexEntrance);
+            computeDistances(roomDistanceFromExit, numRooms, edges, roomIndexExit);
         }
     }
 
     // Pick sizes for the rooms. The entrance and exit rooms are special and
     // have fixed sizes.
 
-    const minRoomSize = corridorWidth + 2;
+    const minRoomSize = corridorWidth + 6;
     const maxRoomSize = 33;
     const squaresPerBlock = maxRoomSize + corridorWidth + 2;
 
@@ -3289,7 +3378,7 @@ function createLevel() {
 
     // Enemies
 
-    const [spikes, turrets, swarmers] = createEnemies(rooms, roomDistance, level, positionsUsed);
+    const [spikes, turrets, swarmers] = createEnemies(rooms, roomDistanceFromEntrance, level, positionsUsed);
 
     // Potions
 
@@ -3318,10 +3407,46 @@ function createLevel() {
     };
 }
 
+function computeDistances(roomDistance, numRooms, edges, roomIndexStart) {
+    roomDistance.length = numRooms;
+    roomDistance.fill(numRooms);
+    const toVisit = [{priority: 0, roomIndex: roomIndexStart}];
+    while (toVisit.length > 0) {
+        const {priority, roomIndex} = priorityQueuePop(toVisit);
+
+        if (roomDistance[roomIndex] <= priority) {
+            continue;
+        }
+
+        roomDistance[roomIndex] = priority;
+
+        const dist = priority + 1;
+
+        for (const edge of edges) {
+            if (edge[0] == roomIndex) {
+                if (roomDistance[edge[1]] > dist) {
+                    priorityQueuePush(toVisit, {priority: dist, roomIndex: edge[1]});
+                }
+            } else if (edge[1] == roomIndex) {
+                if (roomDistance[edge[0]] > dist) {
+                    priorityQueuePush(toVisit, {priority: dist, roomIndex: edge[0]});
+                }
+            }
+        }
+    }
+}
+
+function computedDistance(numRooms, edges, roomIndexStart, roomIndexEnd) {
+    const roomDistance = computeDistances(numRooms, edges, roomIndexStart);
+    return roomDistance[roomIndexEnd];
+}
+
 function createEnemies(rooms, roomDistance, level, positionsUsed) {
     const spikes = [];
     const turrets = [];
     const swarmers = [];
+
+    const dMax = roomDistance.reduce((d0, d1) => Math.max(d0, d1), 0);
 
     for (let roomIndex = 0; roomIndex < roomDistance.length; ++roomIndex) {
         const d = roomDistance[roomIndex];
@@ -3330,16 +3455,17 @@ function createEnemies(rooms, roomDistance, level, positionsUsed) {
 
         const room = rooms[roomIndex];
 
-        const maxEnemies = Math.floor(d * Math.max(2, room.sizeX * room.sizeY / 224));
+        const depthDensity = 0.2 + 1.2 * d / dMax;
+        const maxEnemies = Math.ceil(room.sizeX * room.sizeY * 0.025 * depthDensity);
         let numEnemies = 0;
         for (let i = 0; i < 1024 && numEnemies < maxEnemies; ++i) {
             // Pick a kind of monster to create.
             const monsterKind = Math.random();
 
             let success = false;
-            if (monsterKind < 0.333 || d < 2) {
+            if (monsterKind < 0.3 || d < 2) {
                 success = tryCreateSpike(room, spikes, level, positionsUsed);
-            } else if ((monsterKind < 0.667 || d < 3) && d != 3) {
+            } else if ((monsterKind < 0.7 || d < 3) && d != 3) {
                 success = tryCreateTurret(room, turrets, level, positionsUsed);
             } else {
                 success = tryCreateSwarmer(room, swarmers, level, positionsUsed);
@@ -3364,7 +3490,7 @@ function tryCreateSpike(room, spikes, level, positionsUsed) {
         return false;
     }
 
-    if (isPositionTooCloseToOtherPositions(positionsUsed, 3 * monsterRadius, position)) {
+    if (isPositionTooCloseToOtherPositions(positionsUsed, 4 * monsterRadius, position)) {
         return false;
     }
 
@@ -3391,7 +3517,7 @@ function tryCreateTurret(room, turrets, level, positionsUsed) {
         return false;
     }
 
-    if (isPositionTooCloseToOtherPositions(positionsUsed, 3 * monsterRadius, position)) {
+    if (isPositionTooCloseToOtherPositions(positionsUsed, 4 * monsterRadius, position)) {
         return false;
     }
 
@@ -3419,7 +3545,7 @@ function tryCreateSwarmer(room, swarmers, level, positionsUsed) {
         return false;
     }
 
-    if (isPositionTooCloseToOtherPositions(positionsUsed, 3 * monsterRadius, position)) {
+    if (isPositionTooCloseToOtherPositions(positionsUsed, 4 * monsterRadius, position)) {
         return false;
     }
 
@@ -3447,9 +3573,9 @@ function createPotions(rooms, roomIndexEntrance, roomIndexExit, level, positions
     }
 
     shuffleArray(roomIndices);
-    roomIndices.length = Math.ceil(roomIndices.length * 0.75);
+    roomIndices.length = Math.ceil(roomIndices.length * 0.667);
 
-    const numHealthPotions = Math.ceil(roomIndices.length / 2);
+    const numHealthPotions = Math.ceil(roomIndices.length * 0.667);
 
     const potions = [];
 
@@ -3603,6 +3729,8 @@ function tryCreatePillarRoom(room, level) {
         return false;
 
     function plotPillar(x, y) {
+        if (Math.random() < 0.125)
+            return;
         x += room.minX;
         y += room.minY;
         level.set(x, y, ttWall);
@@ -3636,7 +3764,7 @@ function tryCreatePillarRoom(room, level) {
 function tryPlaceCenterObstacleRoom(rooms, level) {
     for (let i = 0; i < rooms.length; ++i) {
         const room = rooms[i];
-        if (room.sizeX < 13 || room.sizeY < 13)
+        if (room.sizeX < 15 || room.sizeY < 15)
             continue;
 
         rooms[i] = rooms[rooms.length-1];
@@ -3650,8 +3778,8 @@ function tryPlaceCenterObstacleRoom(rooms, level) {
             }
         }
 
-        plotRect(room.minX + 5, room.minY + 5, room.sizeX - 10, room.sizeY - 10, ttWall);
-        plotRect(room.minX + 6, room.minY + 6, room.sizeX - 12, room.sizeY - 12, ttSolid);
+        plotRect(room.minX + 6, room.minY + 6, room.sizeX - 12, room.sizeY - 12, ttWall);
+        plotRect(room.minX + 7, room.minY + 7, room.sizeX - 14, room.sizeY - 14, ttSolid);
 
         return;
     }
@@ -3712,6 +3840,8 @@ function renderLootItems(state, renderer, matScreenFromWorld) {
 
     renderer.renderDiscs(matScreenFromWorld, discs);
 
+    renderer.renderGlyphs.start(matScreenFromWorld);
+
     const rect = glyphRect(15);
     const rx = 0.25;
     const ry = 0.5;
@@ -3740,7 +3870,7 @@ function renderLootItems(state, renderer, matScreenFromWorld) {
         );
     }
 
-    renderer.renderGlyphs.flush(matScreenFromWorld);
+    renderer.renderGlyphs.flush();
 }
 
 function updateLootItems(state) {
@@ -3765,6 +3895,8 @@ function renderPotions(state, renderer, matScreenFromWorld) {
 
     renderer.renderDiscs(matScreenFromWorld, discs);
 
+    renderer.renderGlyphs.start(matScreenFromWorld);
+
     const rect = glyphRect(173);
     const rx = 0.25;
     const ry = 0.5;
@@ -3781,7 +3913,7 @@ function renderPotions(state, renderer, matScreenFromWorld) {
         );
     }
 
-    renderer.renderGlyphs.flush(matScreenFromWorld);
+    renderer.renderGlyphs.flush();
 }
 
 function updatePotions(state) {
