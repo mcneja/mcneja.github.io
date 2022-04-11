@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head profile="http://www.w3.org/2005/10/profile">
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body {
+  margin-top: 3rem;
+  flex-direction: column;
+  align-items: center;
+  background-color: #d0e0ee;
+}
+.column {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+canvas {
+  background: #f0f0f0;
+  border: 1px solid #ccc;
+  box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.2);
+}
+</style>
+<title>Dungeon Generation</title>
+</head>
+<body>
+<div class="column">
+<canvas id="canvas" width="1024" height="1024"></canvas>
+<p>Entrance is at black; goal is at white. Colors in squares are keys for the corresponding colored connecting corridor. Reload page to regenerate</p>
+<p class="center"><a href="../index.html">Back</a></p>
+</div>
+</body>
+<script src="dun-gen.js"></script>
+</html>
