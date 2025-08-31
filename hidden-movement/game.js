@@ -9,18 +9,81 @@ const nodeSpacingSquared = nodeSpacing * nodeSpacing;
 function main() {
     const graph = generateGraph();
 
+    const state = {
+        graph: graph,
+        x: 0.5,
+        y: 0.5,
+        selectedNode: undefined,
+    };
+
     const canvas = document.getElementById('canvas');
 
-    drawGraph(canvas, graph);
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('pointermove', onPointerMove);
+    document.addEventListener('pointerup', onPointerUp);
+
+    function requestRedraw() {
+        requestAnimationFrame((now) => drawState(canvas, state));
+    }
+
+    function onPointerDown(e) {
+        const rect = canvas.getBoundingClientRect();
+        state.x = (e.clientX - rect.left) / canvas.width;
+        state.y = (e.clientY - rect.top) / canvas.height;
+        const node = closestNode(state.graph, state.x, state.y);
+        state.selectedNode = (node === state.selectedNode) ? undefined : node;
+        requestRedraw();
+    }
+
+    function onPointerMove(e) {
+    }
+
+    function onPointerUp(e) {
+    }
+
+    requestRedraw();
 }
 
-function drawGraph(canvas, graph) {
-    const ctx = canvas.getContext('2d');
-
+function drawState(canvas, state) {
     const canvasSizeX = canvas.width;
     const canvasSizeY = canvas.height;
 
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.setTransform(canvasSizeX, 0, 0, canvasSizeY, 0, 0);
+
+    drawGraph(ctx, state.graph, state.selectedNode);
+
+    /*
+    const x = state.x;
+    const y = state.y;
+    const r = 0.01;
+
+    ctx.fillStyle = 'rgb(248, 192, 128)';
+    ctx.strokeStyle = 'rgb(0, 0, 0)';
+    ctx.fillRect(x - r, y - r, 2*r, 2*r);
+    ctx.strokeRect(x - r, y - r, 2*r, 2*r);
+    */
+}
+
+function closestNode(graph, x, y) {
+    let sqdistClosest = Infinity;
+    let nodeClosest = undefined;
+
+    for (const node of graph.nodes) {
+        const dx = node.pos[0] - x;
+        const dy = node.pos[1] - y;
+        const sqdist = dx*dx + dy*dy;
+        if (sqdist < sqdistClosest) {
+            sqdistClosest = sqdist;
+            nodeClosest = node;
+        }
+    }
+
+    return nodeClosest;
+}
+
+function drawGraph(ctx, graph, selectedNode) {
     ctx.strokeStyle = 'rgb(192, 192, 192)';
     ctx.lineWidth = 0.0075;
 
@@ -42,11 +105,19 @@ function drawGraph(canvas, graph) {
         const x = node.pos[0];
         const y = node.pos[1];
         if (node.thief) {
-            ctx.fillStyle = 'rgb(248, 248, 248)';
+            if (node === selectedNode) {
+                ctx.fillStyle = 'rgb(255, 128, 128)';
+            } else {
+                ctx.fillStyle = 'rgb(248, 248, 248)';
+            }
             ctx.fillRect(x - r, y - r, 2 * r, 2 * r);
             ctx.strokeRect(x - r, y - r, 2 * r, 2 * r);
         } else {
-            ctx.fillStyle = 'rgb(128, 128, 128)';
+            if (node === selectedNode) {
+                ctx.fillStyle = 'rgb(192, 32, 32)';
+            } else {
+                ctx.fillStyle = 'rgb(128, 128, 128)';
+            }
             ctx.fillRect(x - s, y - s, 2 * s, 2 * s);
         }
     }
