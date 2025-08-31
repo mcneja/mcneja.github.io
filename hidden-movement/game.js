@@ -99,6 +99,12 @@ function drawGraph(ctx, graph, selectedNode) {
     ctx.strokeStyle = 'rgb(32, 32, 32)';
     ctx.lineWidth = 0.0025;
 
+    let adjNodes = [];
+    if (selectedNode !== undefined) {
+        adjNodes = adjacentSameKindNodes(graph, selectedNode);
+    }
+    const adjNodesSet = new Set(adjNodes);
+
     const r = 0.01;
     const s = 0.0065;
     for (const node of graph.nodes) {
@@ -107,6 +113,8 @@ function drawGraph(ctx, graph, selectedNode) {
         if (node.thief) {
             if (node === selectedNode) {
                 ctx.fillStyle = 'rgb(255, 128, 128)';
+            } else if (adjNodesSet.has(node)) {
+                ctx.fillStyle = 'rgb(220, 220, 248)';
             } else {
                 ctx.fillStyle = 'rgb(248, 248, 248)';
             }
@@ -115,12 +123,46 @@ function drawGraph(ctx, graph, selectedNode) {
         } else {
             if (node === selectedNode) {
                 ctx.fillStyle = 'rgb(192, 32, 32)';
+            } else if (adjNodesSet.has(node)) {
+                ctx.fillStyle = 'rgb(64, 64, 128)';
             } else {
                 ctx.fillStyle = 'rgb(128, 128, 128)';
             }
             ctx.fillRect(x - s, y - s, 2 * s, 2 * s);
         }
     }
+}
+
+function adjacentSameKindNodes(graph, nodeStart) {
+    if (nodeStart === undefined) {
+        return [];
+    }
+
+    const toVisit = [];
+    const visited = new Set();
+    visited.add(nodeStart);
+    for (const iNode of nodeStart.edges) {
+        toVisit.push(graph.nodes[iNode]);
+    }
+    const neighbors = [];
+    while (toVisit.length > 0) {
+        const node = toVisit.shift();
+        if (visited.has(node)) {
+            continue;
+        }
+        visited.add(node);
+        if (node.thief === nodeStart.thief) {
+            neighbors.push(node);
+        } else {
+            for (const iNodeNext of node.edges) {
+                const nodeNext = graph.nodes[iNodeNext];
+                if (!visited.has(nodeNext)) {
+                    toVisit.push(nodeNext);
+                }
+            }
+        }
+    }
+    return neighbors;
 }
 
 function generateGraph() {
