@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Weaver Modulation</title>
+    <meta name="description" content="Audio basics demo for Web Audio API" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, shrink-to-fit=no"
+    />
+    <link rel="stylesheet" type="text/css" href="style.css" />
+  </head>
+  <body>
+    <div id="boombox">
+      <div class="boombox-handle"></div>
+
+      <div class="boombox-body">
+        <section class="master-controls">
+          <input
+            type="range"
+            id="volume"
+            class="control-volume"
+            min="0"
+            max="2"
+            value="1"
+            list="gain-vals"
+            step="0.01"
+            data-action="volume"
+          />
+          <datalist id="gain-vals">
+            <option value="0" label="min"></option>
+            <option value="2" label="max"></option>
+          </datalist>
+
+          <label for="volume">VOL</label>
+
+          <input
+            type="range"
+            id="frequency"
+            class="control-frequency"
+            list="frequency-vals"
+            min="15"
+            max="3015"
+            value="1515"
+            step="10"
+            data-action="frequency"
+          />
+          <datalist id="frequency-vals">
+            <option value="15" label="left"></option>
+            <option value="3015" label="right"></option>
+          </datalist>
+
+          <label for="frequency">FREQ</label>
+
+        </section>
+
+        <section class="tape">
+          <audio src="bob_and_ray_1957.mp3" crossorigin="anonymous"></audio>
+
+          <!-- 			type="audio/mpeg" -->
+
+          <button
+            data-playing="false"
+            class="tape-controls-play"
+            role="switch"
+            aria-checked="false"
+          >
+            <span>Play/Pause</span>
+          </button>
+        </section>
+      </div>
+      <!-- boombox-body -->
+    </div>
+
+    <script type="text/javascript">
+      console.clear();
+
+      // instigate our audio context
+      const audioCtx = new AudioContext();
+      audioCtx.audioWorklet.addModule('weaver-modulator.js');
+
+      // load some sound
+      const audioElement = document.querySelector("audio");
+      let initialized = false;
+      let source;
+
+      const playButton = document.querySelector(".tape-controls-play");
+
+      // play pause audio
+      playButton.addEventListener(
+        "click",
+        () => {
+          if (!initialized) {
+            init();
+          }
+
+          // check if context is in suspended state (autoplay policy)
+          if (audioCtx.state === "suspended") {
+            audioCtx.resume();
+          }
+
+          if (playButton.dataset.playing === "false") {
+            audioElement.play();
+            playButton.dataset.playing = "true";
+            // if track is playing pause it
+          } else if (playButton.dataset.playing === "true") {
+            audioElement.pause();
+            playButton.dataset.playing = "false";
+          }
+
+          // Toggle the state between play and not playing
+          let state =
+            playButton.getAttribute("aria-checked") === "true" ? true : false;
+          playButton.setAttribute("aria-checked", state ? "false" : "true");
+        },
+        false
+      );
+
+      // If track ends
+      audioElement.addEventListener(
+        "ended",
+        () => {
+          playButton.dataset.playing = "false";
+          playButton.setAttribute("aria-checked", "false");
+        },
+        false
+      );
+
+      function init() {
+        source = new MediaElementAudioSourceNode(audioCtx, { mediaElement: audioElement });
+        const weaver = new AudioWorkletNode(audioCtx, 'weaver-modulator');
+        const volume = audioCtx.createGain();
+
+        source.connect(weaver);
+        weaver.connect(volume);
+        volume.connect(audioCtx.destination);
+
+        const volumeControl = document.querySelector('[data-action="volume"]');
+        volumeControl.addEventListener(
+          "input",
+          () => {
+            volume.gain.value = volumeControl.value;
+          },
+          false
+        );
+
+        const frequencyControl = document.querySelector('[data-action="frequency"]');
+        frequencyControl.addEventListener(
+          "input",
+          () => {
+            const freqParam = weaver.parameters.get('frequency');
+            freqParam.linearRampToValueAtTime(frequencyControl.value, audioCtx.currentTime + 0.1);
+          },
+          false
+        );
+
+        initialized = true;
+      }
+    </script>
+  </body>
+</html>
