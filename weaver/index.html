@@ -8,57 +8,51 @@
       name="viewport"
       content="width=device-width, initial-scale=1, shrink-to-fit=no"
     />
-    <link rel="stylesheet" type="text/css" href="style.css" />
+    <style>
+      .slider-width
+      {
+        width: 50em;
+      }
+    </style>
   </head>
+  <link rel="icon" type="image/ico" href="favicon.ico"/>
   <body>
-    <div id="boombox">
-      <div class="boombox-handle"></div>
-
-      <div class="boombox-body">
-        <section class="master-controls">
+    <table>
+      <tr>
+        <td>Volume</td>
+        <td>
           <input
+            class="slider-width"
             type="range"
             id="volume"
-            class="control-volume"
             min="0"
             max="2"
             value="1"
-            list="gain-vals"
-            step="0.01"
+            step="any"
             data-action="volume"
           />
-          <datalist id="gain-vals">
-            <option value="0" label="min"></option>
-            <option value="2" label="max"></option>
-          </datalist>
-
-          <label for="volume">VOL</label>
-
+        </td>
+      </tr>
+      <tr>
+        <td>Frequency</td>
+        <td>
           <input
+            class="slider-width"
             type="range"
             id="frequency"
-            class="control-frequency"
-            list="frequency-vals"
-            min="15"
-            max="3015"
-            value="1515"
-            step="10"
+            min="-6000"
+            max="6000"
+            value="0"
+            step="any"
             data-action="frequency"
           />
-          <datalist id="frequency-vals">
-            <option value="15" label="left"></option>
-            <option value="3015" label="right"></option>
-          </datalist>
-
-          <label for="frequency">FREQ</label>
-
-        </section>
-
-        <section class="tape">
-          <audio src="bob_and_ray_1957.mp3" crossorigin="anonymous"></audio>
-
-          <!-- 			type="audio/mpeg" -->
-
+        </td>
+      </tr>
+      <tr>
+        <td>
+          &nbsp;
+        </td>
+        <td>
           <button
             data-playing="false"
             class="tape-controls-play"
@@ -67,10 +61,12 @@
           >
             <span>Play/Pause</span>
           </button>
-        </section>
-      </div>
-      <!-- boombox-body -->
-    </div>
+        </td>
+      </tr>
+    </table>
+
+    <!-- type="audio/mpeg" -->
+    <audio src="bob_and_ray_1957.mp3" crossorigin="anonymous"></audio>
 
     <script type="text/javascript">
       console.clear();
@@ -109,8 +105,7 @@
           }
 
           // Toggle the state between play and not playing
-          let state =
-            playButton.getAttribute("aria-checked") === "true" ? true : false;
+          let state = playButton.getAttribute("aria-checked") === "true" ? true : false;
           playButton.setAttribute("aria-checked", state ? "false" : "true");
         },
         false
